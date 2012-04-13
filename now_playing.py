@@ -54,21 +54,20 @@ class Example(QtGui.QWidget):
 
 		self.setStyleSheet("QWidget { background-color: black;  color: white}")  
 		
-		font.setPointSize(17);
+		font.setPointSize(19);
 		self.setLayout(vbox)
 
-		border_stretch = 1
 		inter_stretch = 10
-		vbox.addStretch(border_stretch);
+		vbox.addStretch(3);
 		self.line1 = self.mktext("Hello World!", font, vbox)
 		vbox.addStretch(inter_stretch);
 		self.line2 = self.mktext("This is a rather long second line", font, vbox)
 		vbox.addStretch(inter_stretch);
 		self.line3 = self.mktext("This is a rather long third line", font, vbox)
 		vbox.addStretch(inter_stretch);
-		font.setPointSize(font.pointSize() - 3);
+		font.setPointSize(14);
 		self.line4 = self.mktext("This is a rather long fourth line", font, vbox)
-		vbox.addStretch(border_stretch);
+		vbox.addStretch(0);
 
 		self.setWindowTitle('Now Playing')
 		self.showFullScreen();
@@ -89,11 +88,14 @@ class Example(QtGui.QWidget):
 		except ValueError:
 			stime = ""
 		else:
-			stime = datetime.time(itime / (60 * 60), itime / 60 %60, itime % 60).strftime('%H:%M:%S')
+			stime = datetime.time(itime / (60 * 60), itime / 60 % 60, itime % 60).strftime('%H:%M:%S')
 		bitrate = metadata.get("audio-bitrate", None)
 		info = stime
 		if bitrate:
-			info += " %d kb/s" % bitrate
+			info += ", %d kb/s" % bitrate
+		track_number = metadata.get("tracknumber", None)
+		if track_number:
+			info += ", track %d" % track_number
 		self.show_text(self.get(metadata, "artist"), self.get(metadata, "title"), self.get(metadata, "album"), info)
 	
 	def track_change(self, metadata):
