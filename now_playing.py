@@ -44,8 +44,10 @@ class Example(QtGui.QWidget):
 		
 	def initUI(self):
 		font = QtGui.QFont();
-		vbox = QtGui.QGridLayout()
-		
+		vbox = QtGui.QVBoxLayout()
+		vbox.setContentsMargins(0, 0, 0, 0);
+		vbox.setSpacing(0);
+
 #		pal = self.palette();
 #		pal.setColor(self.backgroundRole(), QtCore.Color.blue);
 #		self.setPalette(pal);
@@ -53,16 +55,21 @@ class Example(QtGui.QWidget):
 		self.setStyleSheet("QWidget { background-color: black;  color: white}")  
 		
 		font.setPointSize(17);
-		
-		vbox.setSpacing(26)
 		self.setLayout(vbox)
 
+		border_stretch = 1
+		inter_stretch = 10
+		vbox.addStretch(border_stretch);
 		self.line1 = self.mktext("Hello World!", font, vbox)
+		vbox.addStretch(inter_stretch);
 		self.line2 = self.mktext("This is a rather long second line", font, vbox)
+		vbox.addStretch(inter_stretch);
 		self.line3 = self.mktext("This is a rather long third line", font, vbox)
+		vbox.addStretch(inter_stretch);
+		font.setPointSize(font.pointSize() - 3);
 		self.line4 = self.mktext("This is a rather long fourth line", font, vbox)
+		vbox.addStretch(border_stretch);
 
-		self.setGeometry(300, 600, 250, 150)
 		self.setWindowTitle('Now Playing')
 		self.showFullScreen();
 		self.show()
