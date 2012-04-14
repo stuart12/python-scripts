@@ -11,6 +11,10 @@
 # more details.  You should have received a copy of the GNU General Public
 # License along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+# Written for Amarok 2.5 & VLC 2 which implement MPRIS 2.1
+
+# http://www.mpris.org/2.1/spec/
+
 # http://dbus.freedesktop.org/doc/dbus-python/doc/tutorial.html
 # http://www.documentroot.net/en/linux/python-dbus-tutorial
 # http://developer.pidgin.im/wiki/DbusHowto
@@ -18,13 +22,29 @@
 # http://www.riverbankcomputing.com/pipermail/pyqt/2008-March/018811.html
 # http://www.zetcode.com/tutorials/pyqt4/widgets/
 
-import sys, datetime
+import sys, datetime, time
 import dbus
 # import python-qt4-dbus
 import dbus.mainloop.qt
 import subprocess
 
 from PyQt4 import QtGui, QtCore
+
+def timestamp():
+	return time.strftime("%H:%M:%S")
+	
+def seconds_to_string(s):
+	try:
+		itime = int(s)
+	except ValueError:
+		stime = ""
+	else:
+		if itime > 0:
+			stime = datetime.time(itime / (60 * 60), itime / 60 % 60, itime % 60).strftime('%H:%M:%S')
+		else:
+			stime = ""
+	return stime
+	
 
 class Example(QtGui.QWidget):
 	
@@ -34,6 +54,16 @@ class Example(QtGui.QWidget):
 		self.screen_on = False
 		
 		self.initUI()
+		
+	def switch_on(self):
+		if not self.screen_on:
+			subprocess.check_call(["xset", "dpms", "force", "on"])
+			self.screen_on = True
+		
+	def switch_off(self):
+		if self.screen_on:
+			subprocess.check_call(["xset", "dpms", "force", "off"])
+			self.screen_on = False
 		
 	def mktext(self, text, font, vbox):
 		t = QtGui.QLabel (text, self)
@@ -83,6 +113,7 @@ class Example(QtGui.QWidget):
 		self.line4.setText(l4)
 		
 	def track(self, metadata):
+		self.switch_on()
 		try:
 			itime = int(metadata.get("time", "bad"))
 		except ValueError:
@@ -96,14 +127,18 @@ class Example(QtGui.QWidget):
 		track_number = metadata.get("tracknumber", None)
 		if track_number:
 			info += ", track %d" % track_number
-		self.show_text(self.get(metadata, "artist"), self.get(metadata, "title"), self.get(metadata, "album"), info)
+			
+		title = metadata.get("title", None)
+		if not title:
+			title = metadata.get("xesam:title", "")
+		self.show_text(metadata.get("artist", ""), title, metadata.get("album", ""), info)
 	
 	def track_change(self, metadata):
-		print "track_change", metadata
+		print timestamp(), "track_change", metadata.get("title", str(len(metadata)))
 		self.track(metadata)
 		
 	def status_change(self, status):
-		print "status_change", str(status)
+		print timestamp(), "status_change", str(status)
 		if len(status) < 1:
 			self.show_text("", "amarok", "empty status")
 		elif status[0] == 0:
@@ -122,13 +157,41 @@ class Example(QtGui.QWidget):
 #		self.line1.setText(kargs[2])
 		
 	def my_func(self, account, sender, message, conversation, flags):
-		print sender, "said:", message
+		print timestamp(), sender, "said:", message
 		self.line1.setText(sender)
 		self.line2.setText(message)
 		self.line3.setText(str(account) + " " + str(conversation) + " " + str(flags))
 		
 	def signal_print(self, *all):
-		print "signal_print", all
+		print timestamp(), "signal_print", all
+
+	def properties_changed(self, who, dict, signature):
+		print timestamp(), "properties_changed", who, dict
+		for i in dict:
+			print "     ", i, dict[i]
+		metadata = dict.get('Metadata', None)
+		if metadata:
+			for i in metadata:
+				print "           ", i, metadata[i]
+			title = metadata.get("xesam:title", "")
+			xartist = metadata.get("xesam:artist", None)
+			if xartist and len(xartist) > 0:
+				artist = xartist[0]
+			else:
+				artist = ""
+			album = metadata.get("xesam:album", "")
+			time = seconds_to_string(metadata.get("mpris:length", 0) / 1000000)
+			track =  metadata.get("xesam:trackNumber", None)
+			info = time
+			if track:
+				info += " track %d" % track
+			self.show_text(artist, title, album, info)
+			
+		status = dict.get('PlaybackStatus', None)
+		if status == 'Stopped' or status == 'Paused':
+			self.switch_off()
+		elif status == 'Playing':
+			self.switch_on()
 
 	def changeTitle(self, state):
 		if state == QtCore.Qt.Checked:
@@ -137,14 +200,17 @@ class Example(QtGui.QWidget):
 			self.setWindowTitle('')
 		
 def main():
+	print timestamp(), "initialising"
 	app = QtGui.QApplication(sys.argv)
 	dbus_loop = dbus.mainloop.qt.DBusQtMainLoop(set_as_default=True)
 	bus = dbus.SessionBus(mainloop=dbus_loop)
 	ex = Example(bus)
 #	bus.add_signal_receiver(ex.my_func , dbus_interface="im.pidgin.purple.PurpleInterface",signal_name="ReceivedImMsg")
 # http://xmms2.org/wiki/MPRIS#The_signals
-	bus.add_signal_receiver(ex.status_change, dbus_interface="org.freedesktop.MediaPlayer", signal_name="StatusChange")
-	bus.add_signal_receiver(ex.track_change, dbus_interface="org.freedesktop.MediaPlayer",signal_name="TrackChange" )
+#	bus.add_signal_receiver(ex.status_change, dbus_interface="org.freedesktop.MediaPlayer", signal_name="StatusChange")
+#	bus.add_signal_receiver(ex.track_change, dbus_interface="org.freedesktop.MediaPlayer",signal_name="TrackChange" )
+	bus.add_signal_receiver(ex.properties_changed, dbus_interface="org.freedesktop.DBus.Properties",signal_name="PropertiesChanged" )
+	print timestamp(), "starting"
 	sys.exit(app.exec_())
 
 if __name__ == '__main__':
