@@ -19,8 +19,8 @@ import datetime
 import shutil
 import ftplib
 import time
-import optparse
-gpg_options = ('gpg', '--options', '/dev/null', "--always-trust")
+import optparse, errno
+gpg_options = ('gpg', '--options', '/dev/null', "--always-trust", "--batch")
 #gpg_options = ('gpg', '--no-permission-warning', '--options', '/dev/null', '--homedir', '/home/stuart/.gnupg')
 
 myname = os.path.basename(sys.argv[0])
@@ -34,7 +34,6 @@ parser.add_option("-w", "--write", action="store_true", dest="veryverbose", defa
 (options, args) = parser.parse_args()
 
 devnull = open("/dev/null", "r+")
-gpg_options = gpg_options + ('-z', '9', '--encrypt', '--recipient')
 
 def label():
 	random = open("/dev/urandom")
@@ -248,6 +247,19 @@ dummy_reponse1 = """\" uploade avec succes.
 226-Il est disponible via http://dl.free.fr/test-url
 226-
 226 Vous pouvez a tout moment supprimer ce fichier via: http://dl.free.fr/rm.pl?h=test-url&i=25546302&s=L9ZXaFeTKLPKR7eB9Ygq2OJG4uqSBiow"""
+
+os.path.expanduser("~//.gnupg/trustdb.gpg")
+try:
+	fd = os.open(os.path.expanduser("~/.gnupg/trustdb.gpg"), os.O_WRONLY)
+except OSError as e:
+	if e.errno != errno.EROFS:
+		raise
+	# would have liked the quiet to get rid of "gpg: NOTE: trustdb not writable"
+	gpg_options += ("--lock-never", "--quiet", "--no-random-seed-file", "--no-tty")
+# http://lists.gnupg.org/pipermail/gnupg-users/2006-September/029339.html
+# http://www.gossamer-threads.com/lists/gnupg/users/54764
+
+gpg_options += ('-z', '9', '--encrypt', '--recipient')
 
 for a in args:
 	cfg = open(a)
