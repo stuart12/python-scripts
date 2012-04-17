@@ -174,11 +174,11 @@ class Example(QtGui.QWidget):
 			for i in metadata:
 				print "           ", i, metadata[i]
 			title = metadata.get("xesam:title", "")
-			xartist = metadata.get("xesam:artist", None)
-			if xartist and len(xartist) > 0:
-				artist = xartist[0]
+			xartist = metadata.get("xesam:artist", "")
+			if isinstance(xartist, dbus.Array):
+				artist = str(xartist[0])
 			else:
-				artist = ""
+				artist = str(xartist)
 			album = metadata.get("xesam:album", "")
 			time = seconds_to_string(metadata.get("mpris:length", 0) / 1000000)
 			track =  metadata.get("xesam:trackNumber", None)
