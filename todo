@@ -1,0 +1,23 @@
+#!/usr/bin/python
+import os, subprocess, sys
+command = "kooka-mount"
+p = subprocess.Popen("kooka-mount", stdout=subprocess.PIPE, close_fds=True)
+line = None
+for line in p.stdout:
+	pass
+if p.wait() != 0:
+	sys.exit(command + " failed")
+
+if line == None:
+	sys.exit(command + " did not give any output")
+
+words = line.split()
+if len(words) == 0:
+	sys.exit(command + " did give empty output")
+
+directory = words[-1]
+print directory
+os.execlp("gvim", "gvim",
+	"-c", "set autoread",
+	"-c", "autocmd FocusLost * :wa",
+	os.path.join(directory, "todo"))
