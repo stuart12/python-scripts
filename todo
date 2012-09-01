@@ -1,0 +1,40 @@
+#!/usr/bin/python
+# todo, gvim with autoread & autowrite, Copyright (c) 2012 Stuart Pook
+# This program is free software: you can redistribute it and/or modify it under
+# the terms of the GNU General Public License as published by the Free Software
+# Foundation, either version 3 of the License, or (at your option) any later
+# version.  This program is distributed in the hope that it will be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+# FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
+# more details.  You should have received a copy of the GNU General Public
+# License along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+import os, subprocess, sys
+command = "kooka-mount"
+p = subprocess.Popen("kooka-mount", stdout=subprocess.PIPE, close_fds=True)
+line = None
+for line in p.stdout:
+	pass
+if p.wait() != 0:
+	sys.exit(command + " failed")
+
+if line == None:
+	sys.exit(command + " did not give any output")
+
+words = line.split()
+if len(words) == 0:
+	sys.exit(command + " gave an empty last line")
+
+directory = words[-1]
+if directory[0] != "/":
+	sys.exit(command + " gave a relative directory")
+
+os.execlp("gvim", "gvim",
+	"-c", "set autoread",
+	"-c", "autocmd FocusLost * :wa",
+	"--cmd", "set guicursor+=a:blinkon0", # Disable all blinking
+	"--cmd", "set guioptions-=m", # remove menu bar
+	"--cmd", "set guioptions-=T", # remove toolbar
+	"--cmd", "set guioptions-=r", # remove right-hand scroll bar
+	"--cmd", "set guifont=Monospace\\ 9",
+	os.path.join(directory, "todo"))

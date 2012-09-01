@@ -20,7 +20,7 @@ import shutil
 import ftplib
 import time
 import optparse, errno
-gpg_options = ('gpg', '--options', '/dev/null', "--always-trust")
+gpg_options = ('gpg', '--options', '/dev/null', "--always-trust", "--batch")
 #gpg_options = ('gpg', '--no-permission-warning', '--options', '/dev/null', '--homedir', '/home/stuart/.gnupg')
 
 myname = os.path.basename(sys.argv[0])
@@ -254,9 +254,10 @@ try:
 except OSError as e:
 	if e.errno != errno.EROFS:
 		raise
-	# need the quiet toget rid of "gpg: NOTE: trustdb not writable"
-	gpg_options += ("--lock-never", "--quiet", "--no-random-seed-file")
-#http://lists.gnupg.org/pipermail/gnupg-users/2006-September/029339.html
+	# would have liked the quiet to get rid of "gpg: NOTE: trustdb not writable"
+	gpg_options += ("--lock-never", "--quiet", "--no-random-seed-file", "--no-tty")
+# http://lists.gnupg.org/pipermail/gnupg-users/2006-September/029339.html
+# http://www.gossamer-threads.com/lists/gnupg/users/54764
 
 gpg_options += ('-z', '9', '--encrypt', '--recipient')
 
