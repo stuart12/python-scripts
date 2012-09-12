@@ -20,15 +20,18 @@ import shutil
 import ftplib
 import time
 import optparse, errno
-gpg_options = ('gpg', '--options', '/dev/null', "--always-trust", "--batch")
-#gpg_options = ('gpg', '--no-permission-warning', '--options', '/dev/null', '--homedir', '/home/stuart/.gnupg')
+gpg_options = ('gpg', '--options', '/dev/null',
+	"--always-trust", "--batch", "--no-tty")
 
 myname = os.path.basename(sys.argv[0])
 	
 parser = optparse.OptionParser()
-parser.add_option("-v", "--verbose", action="store_true", dest="verbose", default=False, help="verbose")
-parser.add_option("-n", "--noftp", action="store_false", dest="ftp", default=True, help="don't do the ftp")
-parser.add_option("-w", "--write", action="store_true", dest="veryverbose", default=False,
+parser.add_option("-v", "--verbose", action="store_true",
+	dest="verbose", default=False, help="verbose")
+parser.add_option("-n", "--noftp", action="store_false",
+	dest="ftp", default=True, help="don't do the ftp")
+parser.add_option("-w", "--write", action="store_true",
+	dest="veryverbose", default=False,
 	help="debug after each write to ftp server")
 
 (options, args) = parser.parse_args()
@@ -84,7 +87,7 @@ class Waiter:
 		self.dump_stderr = tempfile.TemporaryFile()
 		self.dump_command = make_dump_command(device)
 		if options.verbose: print gpg
-		self.crypter = subprocess.Popen(gpg, close_fds = True, stdin = subprocess.PIPE, stdout = subprocess.PIPE)
+		self.crypter = subprocess.Popen(gpg, close_fds = True, stdin = subprocess.PIPE, stdout = subprocess.PIPE, stderr = subprocess.PIPE)
 		self.pid = os.fork()
 		if self.pid == 0:
 			self.crypter.stdout.close()
@@ -108,6 +111,10 @@ class Waiter:
 		self.dump_stderr.seek(0) 
 		if child_status != 0:
 			check(str(self.dump_command) +  " failed " + str(child_status) + self.dump_stderr.read())
+		for line in self.crypter.stderr:
+			if line != "gpg: NOTE: trustdb not writable\n":
+				sys.stderr.write(line)
+		self.crypter.stderr.close()
 		self.crypter.wait()
 		if self.crypter.returncode != 0:
 			check((myname + ": gpg of %s failed: %d" % (fs, self.crypter.returncode)))
@@ -248,14 +255,14 @@ dummy_reponse1 = """\" uploade avec succes.
 226-
 226 Vous pouvez a tout moment supprimer ce fichier via: http://dl.free.fr/rm.pl?h=test-url&i=25546302&s=L9ZXaFeTKLPKR7eB9Ygq2OJG4uqSBiow"""
 
-os.path.expanduser("~//.gnupg/trustdb.gpg")
 try:
 	fd = os.open(os.path.expanduser("~/.gnupg/trustdb.gpg"), os.O_WRONLY)
+	os.close(fd)
 except OSError as e:
 	if e.errno != errno.EROFS:
 		raise
 	# would have liked the quiet to get rid of "gpg: NOTE: trustdb not writable"
-	gpg_options += ("--lock-never", "--quiet", "--no-random-seed-file", "--no-tty")
+	gpg_options += ("--lock-never", "--quiet", "--no-random-seed-file")
 # http://lists.gnupg.org/pipermail/gnupg-users/2006-September/029339.html
 # http://www.gossamer-threads.com/lists/gnupg/users/54764
 
@@ -291,7 +298,7 @@ for a in args:
 			continue
 		md5 = MD5(options.veryverbose)
 		# dow type device key
-		dow,  type,  device, key = l.rstrip().split(None, 3)
+		dow, type,  device, key = l.rstrip().split(None, 3)
 		if type == "remount":
 			if options.verbose:
 				print "remount_dump of", "device=", device
