@@ -1,0 +1,82 @@
+#!/usr/bin/python
+# email_addresses_mailbox, Copyright (c) 2012 Stuart Pook
+# Output a list of names and email addresses read from the email in a Maildir.
+# This program is free software: you can redistribute it and/or modify it under
+# the terms of the GNU General Public License as published by the Free Software
+# Foundation, either version 3 of the License, or (at your option) any later
+# version.  This program is distributed in the hope that it will be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+# or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
+# more details.  You should have received a copy of the GNU General Public
+# License along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+# http://stackoverflow.com/questions/7331351/python-email-header-decoding-utf-8
+import mailbox, optparse, email, locale, sys, codecs, locale
+	
+locale.setlocale(locale.LC_ALL, "")
+
+#http://blog.mathieu-leplatre.info/python-utf-8-print-fails-when-redirecting-stdout.html
+sys.stdout = codecs.getwriter(locale.getpreferredencoding())(sys.stdout)
+
+def utrim(u, letter):
+	if len(u) > 2 and u[0] == letter and u[-1] == u[0]:
+		return u[1:-1]
+	return u
+	
+def fix_address(a):
+	s = a.split("@")
+	if len(s) == 2:
+		return s[0] + "@" + s[1].lower()
+	return a
+
+def scan_dir(dir, found):
+	if dir.endswith("Sent"):
+		headers = [ "to", "cc", "bcc", "resent-to", "resent-cc" ]
+	else:
+		headers = [ "from" ]
+	mbox = mailbox.Maildir(dir, factory=None)
+	for message in mbox:
+		a = []
+		for h in headers:
+			a.extend(message.get_all(h, []))
+		for i in email.utils.getaddresses(a):
+			dh = email.header.decode_header(i[0])
+			default_charset = 'ASCII'
+			name = ''.join([ unicode(t[0], t[1] or default_charset) for t in dh ])
+			name = utrim(name, "'")
+			name = utrim(name, '"')
+	
+			if len(i[1]) > 0:
+				addr = fix_address(i[1])
+				l = found.get(addr)
+				if not l:
+					l = set()
+					found[addr] = l
+				l.add(name)
+
+
+parser = optparse.OptionParser()
+parser.add_option("-f", "--from",
+	action="store_true", dest="from", default=False,
+	help="read from")	
+(options, args) = parser.parse_args()
+
+found = {}
+for directory in args:
+	scan_dir(directory, found)
+
+s = []
+for a in found:
+	longest = ""
+	for n in found[a]:
+		if len(n) > len(longest) and n != a:
+			longest = n;
+	if longest == "":
+		longest = a
+	s.append((longest, a))
+	
+s.sort(key=lambda x: x[0].lower(), cmp=locale.strcoll)
+for a in s:
+	print a[0], "<" + str(a[1]) + ">"
+
+	
