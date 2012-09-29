@@ -216,7 +216,8 @@ def main():
 	machine = sys.argv[1]
 	print timestamp(), "initialising", machine
 	my_address = get_my_address_for_connection(machine)
-	subprocess.check_call(["ssh", "-nax", machine, "env", "DISPLAY=:0", "xhost", my_address])
+	subprocess.check_call(["ssh", "-nax", machine, "env", "DISPLAY=:0", "xhost", my_address, "&&", 
+	                       "python", "-c", "'import dbus;dbus.Interface(dbus.SystemBus().get_object(\"org.freesmartphone.odeviced\", \"/org/freesmartphone/Device/Display/0\"), dbus_interface=\"org.freesmartphone.Device.Display\").SetBrightness(100)'"])
 	display = machine + ":0"
 	subprocess.check_call(["xrandr",  "-display", display, "--orientation", "right"])
 	print timestamp(), "initialising Qt on", display, "from", my_address
