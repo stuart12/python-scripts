@@ -4,11 +4,11 @@
 # Copyright (C) 2012 Stuart Pook
 # This program is free software: you can redistribute it and/or modify it under
 # the terms of the GNU General Public License as published by the Free Software
-# Foundation, either version 3 of the License, or (at your option) any later
-# version.  This program is distributed in the hope that it will be useful, but
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
-# FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
-# more details.  You should have received a copy of the GNU General Public
+# Foundation, either version 3 of the License, or (at your option) any later version.
+# This program is distributed in the hope that it will be useful, but WITHOUT
+# ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+# or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+# for more details.  You should have received a copy of the GNU General Public
 # License along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 # Written for Amarok 2.5 & VLC 2 which implement MPRIS 2.1
@@ -22,7 +22,7 @@
 # http://www.riverbankcomputing.com/pipermail/pyqt/2008-March/018811.html
 # http://www.zetcode.com/tutorials/pyqt4/widgets/
 
-import sys, datetime, time
+import sys, datetime, time, os, socket
 import dbus
 # import python-qt4-dbus
 import dbus.mainloop.qt
@@ -45,24 +45,31 @@ def seconds_to_string(s):
 			stime = ""
 	return stime
 	
+def dpms(display, status):
+	if status:
+		c = "on"
+	else:
+		c = "off"
+	subprocess.check_call(["xset", "-display", display, "dpms", "force", c])
 
 class Example(QtGui.QWidget):
 	
-	def __init__(self, bus):
+	def __init__(self, bus, display):
 		super(Example, self).__init__()
 		self.bus = bus
 		self.screen_on = False
+		self.display = display
 		
 		self.initUI()
 		
 	def switch_on(self):
 		if not self.screen_on:
-			subprocess.check_call(["xset", "dpms", "force", "on"])
+			dpms(self.display, 1)
 			self.screen_on = True
 		
 	def switch_off(self):
 		if self.screen_on:
-			subprocess.check_call(["xset", "dpms", "force", "off"])
+			dpms(self.display, 0)
 			self.screen_on = False
 		
 	def mktext(self, text, font, vbox):
@@ -143,14 +150,14 @@ class Example(QtGui.QWidget):
 			self.show_text("", "amarok", "empty status")
 		elif status[0] == 0:
 			if not self.screen_on:
-				subprocess.check_call(["xset", "dpms", "force", "on"])
+				dpms(self.display, 1)
 				self.screen_on = True
 #			amarok = self.bus.get_object('org.mpris.amarok', '/Player')
 #			metadata = amarok.GetMetadata()
 #			self.track(metadata)
 		else:
 			if self.screen_on:
-				subprocess.check_call(["xset", "dpms", "force", "off"])
+				dpms(self.display, 0)
 				self.screen_on = False
 			self.show_text("", "not playing", "")
 
@@ -198,13 +205,27 @@ class Example(QtGui.QWidget):
 			self.setWindowTitle('QtGui.QCheckBox')
 		else:
 			self.setWindowTitle('')
-		
+			
+def get_my_address_for_connection(machine):
+	s = socket.create_connection((machine, "ssh"))
+	a = str(s.getsockname()[0])
+	s.close()
+	return a
+	
 def main():
-	print timestamp(), "initialising"
-	app = QtGui.QApplication(sys.argv)
+	machine = sys.argv[1]
+	print timestamp(), "initialising", machine
+	my_address = get_my_address_for_connection(machine)
+	subprocess.check_call(["ssh", "-nax", machine, "env", "DISPLAY=:0", "xhost", my_address])
+	display = machine + ":0"
+	subprocess.check_call(["xrandr",  "-display", display, "--orientation", "right"])
+	print timestamp(), "initialising Qt on", display, "from", my_address
+	extraargs = sys.argv + ["-display", display]
+	os.environ["DISPLAY"] = display # I don't know why this is necessary
+	app = QtGui.QApplication(extraargs)
 	dbus_loop = dbus.mainloop.qt.DBusQtMainLoop(set_as_default=True)
 	bus = dbus.SessionBus(mainloop=dbus_loop)
-	ex = Example(bus)
+	ex = Example(bus, display)
 #	bus.add_signal_receiver(ex.my_func , dbus_interface="im.pidgin.purple.PurpleInterface",signal_name="ReceivedImMsg")
 # http://xmms2.org/wiki/MPRIS#The_signals
 #	bus.add_signal_receiver(ex.status_change, dbus_interface="org.freedesktop.MediaPlayer", signal_name="StatusChange")
