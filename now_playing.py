@@ -183,9 +183,13 @@ class Example(QtGui.QWidget):
 			title = metadata.get("xesam:title", "")
 			xartist = metadata.get("xesam:artist", "")
 			if isinstance(xartist, dbus.Array):
-				artist = str(xartist[0])
+				try:
+					artist = xartist[0].encode('latin-1', 'xmlcharrefreplace')
+				except UnicodeEncodeError as e:
+					print timestamp(), e
+					artist = str(e)
 			else:
-				artist = str(xartist)
+				artist = xartist
 			album = metadata.get("xesam:album", "")
 			time = seconds_to_string(metadata.get("mpris:length", 0) / 1000000)
 			track =  metadata.get("xesam:trackNumber", None)
