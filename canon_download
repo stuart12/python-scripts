@@ -1,0 +1,120 @@
+#!/usr/bin/python -3
+# canon_download Copyright (C) 2012 Stuart Pook (http://www.pook.it/)
+# Download photos from a Canon digital camera that have not already been seen.
+# This program is free software: you can redistribute it and/or modify it under
+# the terms of the GNU General Public License as published by the Free Software
+# Foundation, either version 3 of the License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+# FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+from __future__ import print_function
+import piggyphoto
+import optparse
+import sys
+import os
+import tempfile, filecmp
+
+directory_template = "CANON"
+
+def read_record(options):
+	records = [line.strip() for line in open(options.record)]
+	if options.verbose:
+		print(len(records), "records in", options.record)
+	return records
+	
+def get_files(camera, where, dir_prefix, seen, found, options):
+	result = []
+	if options.verbose:
+		print("looking for files in", where,  dir_prefix)
+	for f, junk in camera.list_files(where):
+		prefix = "IMG_"
+		if f.startswith(prefix):
+			dest_base = dir_prefix + "_" + f[len(prefix):].lower()
+			
+			if not dest_base in seen:
+				found.append(dest_base)
+				
+			dest = os.path.join(options.destination, dest_base)
+				
+			if os.path.lexists(dest):
+				if options.check:
+					result.append([where, f, dest, True])
+				else:
+					print("skipping existing", dest_base)
+			else:
+				if dest_base in seen:
+					if not options.quiet:
+						print("skipping seen", dest_base)
+				else:
+					result.append([where, f, dest, False])
+				
+	return result
+	
+def look_for_canon(camera, where, seen, found, options):
+	jobs = []
+	for d, junk in camera.list_folders(where):
+		nd = os.path.join(where, d)
+		if options.verbose: print("look_for_canon", where, d, nd)
+		suffix = "CANON"
+		if d.endswith(suffix):
+			jobs.extend(get_files(camera, nd, d[:-len(suffix)], seen, found, options))
+		else:
+			jobs.extend(look_for_canon(camera, nd, seen,found,  options))
+	return jobs
+			
+def download(jobs, camera, options):
+	if options.verbose:
+		print("download:", len(jobs), "files to download or check")
+	if not options.dryrun:
+		i = 0
+		for where, f, dest_base, check in jobs:
+			i += 1
+			if not options.quiet:
+				if check:
+					mess = "check"
+				else:
+					mess = "download"
+				print(mess, "%.0f%%" % (100.0 * i / len(jobs)), dest_base)
+			dest = os.path.join(options.destination, dest_base)
+			if check:
+				with tempfile.NamedTemporaryFile(delete = True) as tmp:
+					camera.download_file(where, f, tmp.name)
+					if not filecmp.cmp(dest, tmp.name):
+						print(os.path.basename(sys.argv[0]) + ":", dest, "is different")
+			else:
+				tmp = dest + ".tmp"
+				camera.download_file(where, f, tmp)
+				with open(tmp) as t:
+					os.fsync(t)
+				os.rename(tmp, dest)
+
+def main():
+	parser = optparse.OptionParser()
+	parser.add_option("-v", "--verbose", action="store_true", default=False, help="verbose")
+	parser.add_option("-q", "--quiet", action="store_true", default=False, help="quiet")
+	parser.add_option("-n", "--dryrun", action="store_true", default=False, help="don't do the copies")
+	parser.add_option("-c", "--check", action="store_true", default=False, help="check (verify) already downloaded files")
+	parser.add_option("-w", "--write", action="store_false", default=True, help="don't write record")
+	parser.add_option("-r", "--record", default=os.path.expanduser("~/var/photos/seen"), help="record file")
+	parser.add_option("-d", "--destination", default=".", help="destination directory")
+	(options, args) = parser.parse_args()
+
+	seen = frozenset(read_record(options))
+	camera = piggyphoto.camera()
+	found = []
+	jobs = look_for_canon(camera, "/", seen, found, options)
+	download(jobs, camera, options)
+	if not options.quiet:
+		print(len(found), "new files")
+	if not options.dryrun and options.write and len(found) > 0:
+		with open(options.record, "a") as record:
+			for f in found:
+				record.write(f + "\n")
+
+if __name__ == '__main__':
+	main()
+
