@@ -1,6 +1,10 @@
 #!/usr/bin/python -3
 # canon_download Copyright (C) 2012 Stuart Pook (http://www.pook.it/)
-# Download photos from a Canon digital camera that have not already been seen.
+# Download from a Canon digital camera the photos that have not already been seen.
+# https://github.com/alexdu/piggyphoto/blob/master/piggyphoto
+# http://magiclantern.wikia.com/wiki/Remote_control_with_PTP_and_Python
+# http://pysnippet.blogspot.fr/2009/12/when-ctypes-comes-to-rescue.html
+#
 # This program is free software: you can redistribute it and/or modify it under
 # the terms of the GNU General Public License as published by the Free Software
 # Foundation, either version 3 of the License, or (at your option) any later version.
@@ -99,8 +103,8 @@ def main():
 	parser.add_option("-n", "--dryrun", action="store_true", default=False, help="don't do the copies")
 	parser.add_option("-c", "--check", action="store_true", default=False, help="check (verify) already downloaded files")
 	parser.add_option("-w", "--write", action="store_false", default=True, help="don't write record")
-	parser.add_option("-r", "--record", default=os.path.expanduser("~/var/photos/seen"), help="record file")
-	parser.add_option("-d", "--destination", default=".", help="destination directory")
+	parser.add_option("-r", "--record", metavar="FILE", default=os.path.expanduser("~/var/photos/seen"), help="record file")
+	parser.add_option("-d", "--destination", metavar="DIRECTORY", default=".", help="destination directory")
 	(options, args) = parser.parse_args()
 
 	seen = frozenset(read_record(options))
