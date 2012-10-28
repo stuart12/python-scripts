@@ -93,18 +93,8 @@ def download(jobs, camera, options):
 				with open(tmp) as t:
 					os.fsync(t)
 				os.rename(tmp, dest)
-
-def main():
-	parser = optparse.OptionParser()
-	parser.add_option("-v", "--verbose", action="store_true", default=False, help="verbose")
-	parser.add_option("-q", "--quiet", action="store_true", default=False, help="quiet")
-	parser.add_option("-n", "--dryrun", action="store_true", default=False, help="don't do the copies")
-	parser.add_option("-c", "--check", action="store_true", default=False, help="check (verify) already downloaded files")
-	parser.add_option("-w", "--write", action="store_false", default=True, help="don't write record")
-	parser.add_option("-r", "--record", metavar="FILE", default=os.path.expanduser("~/var/photos/seen"), help="record file")
-	parser.add_option("-d", "--destination", metavar="DIRECTORY", default=".", help="destination directory")
-	(options, args) = parser.parse_args()
-
+				
+def run(options, args):
 	seen = frozenset(read_record(options))
 	camera = piggyphoto.camera()
 	found = []
@@ -116,6 +106,36 @@ def main():
 		with open(options.record, "a") as record:
 			for f in found:
 				record.write(f + "\n")
+	
+
+def main():
+	parser = optparse.OptionParser()
+	parser.add_option("-v", "--verbose", action="store_true", default=False, help="verbose")
+	parser.add_option("-i", "--interactive", action="store_true", default=False, help="interactive mode")
+	parser.add_option("-q", "--quiet", action="store_true", default=False, help="quiet")
+	parser.add_option("-n", "--dryrun", action="store_true", default=False, help="don't do the copies")
+	parser.add_option("-c", "--check", action="store_true", default=False, help="check (verify) already downloaded files")
+	parser.add_option("-w", "--write", action="store_false", default=True, help="don't write record")
+	parser.add_option("-r", "--record", metavar="FILE", default=os.path.expanduser("~/var/photos/seen"), help="record file")
+	parser.add_option("-d", "--destination", metavar="DIRECTORY", default=".", help="destination directory")
+	(options, args) = parser.parse_args()
+
+	if not options.interactive:
+		run(options, args)
+	else:
+		r = 0
+		try:
+			run(options, args)
+		except:
+			r = 1
+			import traceback
+			traceback.print_exc()
+			print("ERROR, return to exit")
+		else:
+			print("OK, return to exit")
+		sys.stdin.readline()
+		sys.exit(r)
+	
 
 if __name__ == '__main__':
 	main()
