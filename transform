@@ -113,7 +113,7 @@ def count_cpus():
 	n = 0;
 	with open("/proc/cpuinfo") as f:
 		for l in f:
-			if l.startswith("processor"):
+			if l.lower().startswith("processor"):
 				n += 1
 	return n
 	
