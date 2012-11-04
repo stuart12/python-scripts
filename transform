@@ -1,0 +1,155 @@
+#!/usr/bin/python2.5
+# transform Copyright (c) 2012 Stuart Pook (http://www.pook.it/)
+# transform all the files in a directory using a set of rules
+# This program is free software: you can redistribute it and/or modify it under
+# the terms of the GNU General Public License as published by the Free Software
+# Foundation, either version 3 of the License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+# FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+# must work with python 2.5
+from __future__ import with_statement
+
+import os, optparse, sys, subprocess
+
+def transform_files(mapping_info, src_dir, src_files, dest_dir):
+	for l in mapping_info:
+		mapping[l[0]] = l[1:]
+		
+def read_files(dir, suffixes):
+	files = []
+	for dirpath, dirname, filenames in os.walk(dir):
+		for f in filenames:
+			l = os.path.splitext(f.decode('utf-8'))
+			if l[1] in suffixes:
+				files.append((os.path.join(dirpath[len(dir) + 1:], l[0]), l[1]))
+	return files
+	
+def progress(done, tasks, options):
+	if done and not options.quiet:
+		print "%d/%d (%.0f%%) done" % (done, len(tasks), done * 100.0 / len(tasks))
+	
+def reap(done, tasks, running, options):
+	pid, status = os.wait()
+	result = running.get(pid)
+	if result:
+		del running[pid]
+		if options.verbose:
+			print >> sys.stderr, "mv", result[0], result[1]
+		os.rename(result[0], result[1])
+		done += 1
+		if not options.quiet:
+			print "%d/%d (%.0f%%)" % (done, len(tasks), done * 100.0 / len(tasks)), os.path.basename(result[1])
+	return done
+
+def start_task(command, in_file, out_file, directories, options):
+	dir = os.path.dirname(out_file)
+	n = len(directories)
+	directories.add(dir)
+	if len(directories) != n:
+		try:
+			os.stat(dir)
+		except OSError:
+			if options.verbose:
+				print "mkdir -p", dir
+			os.makedirs(dir)
+			
+	if options.verbose:
+		print command, '<', in_file, '>', out_file
+	return subprocess.Popen(command, stdin = open(in_file), stdout=open(out_file, "w"))
+	
+def execute_tasks(tasks, map, options):
+	done = 0
+	running = dict()
+	directory_cache = set()
+	for task in tasks:
+		while len(running) == options.ncpus:
+			done = reap(done, tasks, running, options)
+			
+		otmp = task[2] + ".tmp"
+		proc = start_task(task[0], task[1], otmp, directory_cache, options)
+		running[proc.pid] = (otmp, task[2])
+	
+	while len(running):
+		done = reap(done, tasks, running, options)
+		
+def delete(s, v):
+	n = len(s)
+	s.discard(v)
+	return n != len(s)
+
+def transform(in_files, out_files, mapping, options):
+	map = dict([[l[0], l[1:]]  for l in mapping])
+	out_set = set(out_files)
+	
+	tasks = []
+	for in_file in in_files:
+		instruction = map[in_file[1]]
+		out_file = (in_file[0], instruction[0])
+		infile = os.path.join(options.source_dir, in_file[0] + in_file[1])
+		try:
+			outfile = os.path.join(options.target_dir, out_file[0] + out_file[1])
+		except UnicodeDecodeError:
+			print  >> sys.stderr, out_file
+			raise
+		if not delete(out_set, out_file) or os.path.getmtime(infile) > os.path.getmtime(outfile):
+			tasks.append((instruction[1], infile, outfile))
+
+	execute_tasks(tasks, map, options)
+	if options.delete:
+		if options.verbose:
+			print len(out_set), "files to delete"
+		for out in out_set:
+			f = os.path.join(options.target_dir, out[0] + out[1])
+			os.remove(f)
+			if not options.quiet:
+				print "rm", f
+
+def count_cpus():
+	n = 0;
+	with open("/proc/cpuinfo") as f:
+		for l in f:
+			if l.startswith("processor"):
+				n += 1
+	return n
+	
+def main(argv):
+	mapping = ( (u".cr2", u".jpg", ("cr2-to-jpeg")),
+		(u".flac", u".ogg", ("flac-to-ogg") )
+	)
+	parser = optparse.OptionParser(usage="usage: %prog [options] source_dir target_dir")
+	parser.disable_interspersed_args()	
+	parser.add_option("-v", "--verbose", action="store_true", help="verbose message")
+	parser.add_option("-D", "--delete", action="store_true", help="delete old files")
+	parser.add_option("-q", "--quiet", action="store_false", default=False, help="silence")
+	parser.add_option("-t", "--target_dir", default=None, help="target directory")
+	parser.add_option("-s", "--source_dir", default=None, help="source directory")
+	parser.add_option("--ncpus", default = count_cpus(), help="number of cpus to use [%default]")
+	(options, args) = parser.parse_args()
+	
+	if len(args) == 2:
+		options.source_dir = args[0]
+		options.target_dir = args[1]
+	else:
+		parser.error("must supply 2 arguments (%d)" % len(args))
+		sys.exit(1)
+	if options.ncpus <= 0:
+		print >> sys.stderr, "must have at least 1 cpu"
+		sys.exit(1)
+
+	in_files = read_files(options.source_dir, frozenset([f[0] for f in mapping]))
+	out_files = read_files(options.target_dir, set([f[1] for f in mapping]))
+	
+	if options.verbose:
+		print "using", options.ncpus, "cpus"
+		print len(in_files), "source files,", len(out_files), "target files"
+	
+	transform(in_files, out_files, mapping, options)
+	sys.exit(0)
+	
+if __name__ == "__main__":
+	main(sys.argv)
