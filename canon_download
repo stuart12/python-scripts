@@ -21,6 +21,7 @@ import optparse
 import sys
 import os
 import tempfile, filecmp
+import errno
 
 def read_record(options):
 	records = [line.strip() for line in open(options.record)]
@@ -45,11 +46,11 @@ def get_files(camera, where, dir_prefix, seen, found, options):
 			if os.path.lexists(dest):
 				if options.check:
 					result.append([where, f, dest, True])
-				else:
+				elif options.verbose:
 					print("skipping existing", dest_base)
 			else:
 				if dest_base in seen:
-					if not options.quiet:
+					if options.verbose:
 						print("skipping seen", dest_base)
 				else:
 					result.append([where, f, dest, False])
@@ -69,7 +70,7 @@ def look_for_canon(camera, where, seen, found, options):
 	return jobs
 			
 def download(jobs, camera, options):
-	if options.verbose:
+	if not options.quiet:
 		print("download:", len(jobs), "files to download or check")
 	if not options.dryrun:
 		i = 0
@@ -96,6 +97,13 @@ def download(jobs, camera, options):
 				
 def run(options, args):
 	seen = frozenset(read_record(options))
+	try:
+		os.mkdir(options.destination)
+		if not options.quiet:
+			print("created", options.destination)
+	except OSError as e:
+		if e.errno != errno.EEXIST:
+			raise
 	camera = piggyphoto.camera()
 	found = []
 	jobs = look_for_canon(camera, "/", seen, found, options)
