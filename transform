@@ -118,8 +118,9 @@ def count_cpus():
 	return n
 	
 def main(argv):
-	mapping = ( (u".cr2", u".jpg", ("cr2-to-jpeg")),
-		(u".flac", u".ogg", ("flac-to-ogg") )
+	mapping = (
+		(u".cr2", u".jpg", ("cr2-to-jpeg")),
+		(u".flac", u".ogg", ("oggenc", "--quiet", "--quality=5", "-"))
 	)
 	parser = optparse.OptionParser(usage="usage: %prog [options] source_dir target_dir")
 	parser.disable_interspersed_args()	
@@ -128,7 +129,7 @@ def main(argv):
 	parser.add_option("-q", "--quiet", action="store_false", default=False, help="silence")
 	parser.add_option("-t", "--target_dir", default=None, help="target directory")
 	parser.add_option("-s", "--source_dir", default=None, help="source directory")
-	parser.add_option("--ncpus", default = count_cpus(), help="number of cpus to use [%default]")
+	parser.add_option("--ncpus", default = count_cpus(), type='int', help="number of cpus to use [%default]")
 	(options, args) = parser.parse_args()
 	
 	if len(args) == 2:
