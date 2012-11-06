@@ -125,6 +125,7 @@ def main(argv):
 	parser = optparse.OptionParser(usage="usage: %prog [options] source_dir target_dir")
 	parser.disable_interspersed_args()	
 	parser.add_option("-v", "--verbose", action="store_true", help="verbose message")
+	parser.add_option("-i", "--interactive", action="store_true", help="interactive mode")
 	parser.add_option("-D", "--delete", action="store_true", help="delete old files")
 	parser.add_option("-q", "--quiet", action="store_false", default=False, help="silence")
 	parser.add_option("-t", "--target_dir", default=None, help="target directory")
@@ -150,6 +151,9 @@ def main(argv):
 		print len(in_files), "source files,", len(out_files), "target files"
 	
 	transform(in_files, out_files, mapping, options)
+	if options.interactive:
+		print "hit return to exit ",
+		sys.stdin.readline()
 	sys.exit(0)
 	
 if __name__ == "__main__":
