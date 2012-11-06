@@ -16,6 +16,9 @@ from __future__ import with_statement
 
 import os, optparse, sys, subprocess
 
+class MyError(Exception):
+	pass
+
 def transform_files(mapping_info, src_dir, src_files, dest_dir):
 	for l in mapping_info:
 		mapping[l[0]] = l[1:]
@@ -37,6 +40,10 @@ def reap(done, tasks, running, options):
 	pid, status = os.wait()
 	result = running.get(pid)
 	if result:
+		if status != 0:
+			raise MyError(
+				"%s: child failed (%d)"
+				% (os.path.basename(sys.argv[0]), status))
 		del running[pid]
 		if options.verbose:
 			print >> sys.stderr, "mv", result[0], result[1]
