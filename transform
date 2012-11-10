@@ -36,22 +36,26 @@ def progress(done, tasks, options):
 	if done and not options.quiet:
 		print "%d/%d (%.0f%%) done" % (done, len(tasks), done * 100.0 / len(tasks))
 	
-def reap(done, tasks, running, options):
-	pid, status = os.wait()
-	result = running.get(pid)
-	if result:
-		if status != 0:
-			raise MyError(
-				"%s: child failed (%d)"
-				% (os.path.basename(sys.argv[0]), status))
-		del running[pid]
-		if options.verbose:
-			print >> sys.stderr, "mv", result[0], result[1]
-		os.rename(result[0], result[1])
-		done += 1
-		if not options.quiet:
-			print "%d/%d (%.0f%%)" % (done, len(tasks), done * 100.0 / len(tasks)), os.path.basename(result[1])
-	return done
+def reap(done, ntasks, running, options):
+	while True:
+		pid, status = os.wait()
+		result = running.get(pid)
+		if result:
+			del running[pid]
+			if not ntasks or status:
+				os.remove(result[0])
+			if ntasks:
+				if status != 0:
+					myname = os.path.basename(sys.argv[0])
+					if os.WIFEXITED(status):
+						raise MyError("%s: transform to %s failed (%d)" % (myname, result[1], os.WEXITSTATUS(status)))
+					raise MyError("%s: bad status for %s (%d)" % (myname, result[1], status))
+				if options.verbose:
+					print >> sys.stderr, "mv", result[0], result[1]
+				os.rename(result[0], result[1])
+				if not options.quiet:
+					print "%d/%d (%.0f%%)" % (done, ntasks, done * 100.0 / ntasks), os.path.basename(result[1])
+			break
 
 def start_task(command, in_file, out_file, directories, options):
 	dir = os.path.dirname(out_file)
@@ -73,17 +77,24 @@ def execute_tasks(tasks, map, options):
 	done = 0
 	running = dict()
 	directory_cache = set()
-	for task in tasks:
-		while len(running) == options.ncpus:
-			done = reap(done, tasks, running, options)
-			
-		otmp = task[2] + ".tmp"
-		proc = start_task(task[0], task[1], otmp, directory_cache, options)
-		running[proc.pid] = (otmp, task[2])
-	
-	while len(running):
-		done = reap(done, tasks, running, options)
-		
+	ntasks = len(tasks)
+	try:
+		for task in tasks:
+			if len(running) == options.ncpus:
+				reap(done, ntasks, running, options)
+				done += 1
+				
+			otmp = task[2] + ".tmp"
+			proc = start_task(task[0], task[1], otmp, directory_cache, options)
+			running[proc.pid] = (otmp, task[2])
+
+		while len(running):
+			reap(done, ntasks, running, options)
+			done += 1
+	finally:
+		while len(running):
+			reap(-1, 0, running, options)
+
 def delete(s, v):
 	n = len(s)
 	s.discard(v)
