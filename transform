@@ -11,6 +11,7 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 # must work with python 2.5
 from __future__ import with_statement
 
@@ -23,18 +24,17 @@ def transform_files(mapping_info, src_dir, src_files, dest_dir):
 	for l in mapping_info:
 		mapping[l[0]] = l[1:]
 		
+def raiseit(e):
+	raise e
+		
 def read_files(dir, suffixes):
 	files = []
-	for dirpath, dirname, filenames in os.walk(dir):
+	for dirpath, dirname, filenames in os.walk(dir, onerror=raiseit):
 		for f in filenames:
 			l = os.path.splitext(f.decode('utf-8'))
 			if l[1] in suffixes:
 				files.append((os.path.join(dirpath[len(dir) + 1:], l[0]), l[1]))
 	return files
-	
-def progress(done, tasks, options):
-	if done and not options.quiet:
-		print "%d/%d (%.0f%%) done" % (done, len(tasks), done * 100.0 / len(tasks))
 	
 def reap(done, ntasks, running, options):
 	while True:
@@ -54,7 +54,7 @@ def reap(done, ntasks, running, options):
 					print >> sys.stderr, "mv", result[0], result[1]
 				os.rename(result[0], result[1])
 				if not options.quiet:
-					print "%d/%d (%.0f%%)" % (done, ntasks, done * 100.0 / ntasks), os.path.basename(result[1])
+					print "%d/%d (%2.0f%%)" % (done + 1, ntasks, done * 100.0 / ntasks), os.path.basename(result[1])
 			break
 
 def start_task(command, in_file, out_file, directories, options):
@@ -78,6 +78,8 @@ def execute_tasks(tasks, map, options):
 	running = dict()
 	directory_cache = set()
 	ntasks = len(tasks)
+	if not options.quiet:
+		print ntasks, "tasks to run"
 	try:
 		for task in tasks:
 			if len(running) == options.ncpus:
