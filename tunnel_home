@@ -20,6 +20,19 @@ class MyError(Exception):
 def print_command(command, options):
 	if options.verbose:
 		print " ".join(pipes.quote(f) for f in command)
+		
+def get_forwards(options):
+	forwards = []
+	p = subprocess.Popen([options.redirect, "--list"], stdout=subprocess.PIPE)
+	for l in p.stdout:
+		words = l.split()
+		if len(words) != 2:
+			raise MyError(options.redirect + " gave bad output " + l)
+		forwards.append(words)
+	p.stdout.close()
+	if p.wait() != 0:
+		raise MyError(options.redirect + " failed " + p.return_code)
+	return forwards
 
 def main():
 	ports = [ 81, 80, 22, 445, 444, 563, 110, 8080, 995, 993, 20, 21, 23, 220, 5061, 5000, 5001, 5050, 5100, 5101, 5060, 1352, 1293, 3389, 5900, 5800, 2401 ]
@@ -28,12 +41,14 @@ def main():
 	
 	parser.add_option("-H", "--host", help = "host to connect to [%default]", default="sftp")
 	parser.add_option("-v", "--verbose", action="store_true")
-	parser.add_option("-t", "--timeout", type='int', default=2)
+	parser.add_option("-t", "--timeout", type='int', default=3, help="ssh timeout [%default]")
 	parser.add_option("-f", "--fake", action="store_true")
+	parser.add_option("-r", "--redirect", help = "redirect command [%default]", default="redirect_home")
 
 	(options, args) = parser.parse_args()
 	
-	forwards = [ "imap", "submission" ]
+	forwards = get_forwards(options)
+	
 	ssh_base = ["ssh", "-NnaxT",
 		"-o", "ControlMaster=yes",
 		"-o", "ExitOnForwardFailure=yes",
@@ -41,13 +56,11 @@ def main():
 		"-o", "LocalCommand=echo ok",
 		"-o", "ConnectTimeout=%d" % options.timeout]
 	for p in forwards:
-		port = socket.getservbyname(p, "tcp")
-		ssh_base.extend(["-L", "%d:localhost:%s" % (10000 + port, port)])
+		ssh_base.extend(["-L", "%s:localhost:%s" % (p[1], p[0])])
 		
 	for port in ports:
 		ssh_command = ssh_base + ["-p", str(port), options.host]
 		ssh_command.append(options.host)
-		
 		if options.verbose:
 			print_command(ssh_command, options)
 		
@@ -63,7 +76,7 @@ def main():
 	if options.fake:
 		redirect_command = ["sh", "-c", "echo fake; read r; echo faked; exit 0"]
 	else:
-		redirect_command = ["sudo", "redirect_home"]
+		redirect_command = ["sudo", options.redirect]
 		if options.verbose:
 			redirect_command.append("--verbose")
 			print_command(redirect_command, options)
