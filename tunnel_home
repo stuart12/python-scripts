@@ -35,13 +35,17 @@ def get_forwards(options):
 	return forwards
 
 def main():
-	ports = [ 81, 80, 22, 445, 444, 563, 110, 8080, 995, 993, 20, 21, 23, 220, 5061, 5000, 5001, 5050, 5100, 5101, 5060, 1352, 1293, 3389, 5900, 5800, 2401 ]
+	ports = [ 81, 80,
+		22, 445, 444, 563, 110, 8080, 995, 993, 20, 21,
+		23, 220, 5061, 5000, 5001, 5050, 5100, 5101,
+		5060, 1352, 1293, 3389, 5900, 5800, 2401
+	]
 	parser = optparse.OptionParser()
 	parser.disable_interspersed_args()
 	
 	parser.add_option("-H", "--host", help = "host to connect to [%default]", default="sftp")
 	parser.add_option("-v", "--verbose", action="store_true")
-	parser.add_option("-t", "--timeout", type='int', default=3, help="ssh timeout [%default]")
+	parser.add_option("-t", "--timeout", type='int', default=20, help="ssh timeout [%default]")
 	parser.add_option("-f", "--fake", action="store_true")
 	parser.add_option("-r", "--redirect", help = "redirect command [%default]", default="redirect_home")
 
