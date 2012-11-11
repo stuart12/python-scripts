@@ -12,7 +12,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 from __future__ import with_statement
 
-import os, optparse, pipes, socket, subprocess, sys
+import os, optparse, pipes, socket, subprocess, sys, signal
 
 def check_call(command, options):
 	if options.verbose:
@@ -32,6 +32,7 @@ def main():
 	iptables = "/sbin/iptables"
 	base = [ "OUTPUT", "--table", "nat","--protocol", "tcp", "--destination", options.destination, "--jump", "REDIRECT"]
 	
+	signal.signal(signal.SIGHUP. signal.SIG_IGN)
 	rules = []
 	try:
 		for p in forwards:
