@@ -90,7 +90,7 @@ def main():
 	redirect = subprocess.Popen(redirect_command, stdin=ssh.stdout)
 	
 	print "hit return to exit ",
-	os.stdin.readline()
+	sys.stdin.readline()
 	ssh.terminate()
 	ssh.wait()
 	
