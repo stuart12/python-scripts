@@ -12,7 +12,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 from __future__ import with_statement
 
-import os, optparse, sys, subprocess, socket, pipes
+import os, optparse, sys, subprocess, socket, pipes, time
 
 class MyError(Exception):
 	pass
@@ -36,7 +36,7 @@ def get_forwards(options):
 
 def main():
 	ports = [ 80,
-		22, 445, 444, 563, 110, 8080, 995, 993, 20, 21,
+		22, 445, 444, 563, 110, 8080, 993, 20, 21,
 		23, 220, 5061, 5000, 5001, 5050, 5100, 5101,
 		5060, 1352, 1293, 3389, 5900, 5800, 2401
 	]
@@ -89,9 +89,10 @@ def main():
 
 	redirect = subprocess.Popen(redirect_command, stdin=ssh.stdout)
 	
+	time.sleep(1)
 	print "hit return to exit ",
 	sys.stdin.readline()
-	ssh.terminate()
+	os.kill(ssh.pid, signal.SIGTERM)
 	ssh.wait()
 	
 	if redirect.wait():
