@@ -12,7 +12,11 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 from __future__ import with_statement
 
-import os, optparse
+import os, optparse, sys, subprocess, socket, pipes
+
+def print_command(command, options):
+	if options.verbose:
+		print " ".join(pipes.quote(f) for f in command)
 
 def main():
 	parser = optparse.OptionParser()
@@ -23,13 +27,30 @@ def main():
 	
 	(options, args) = parser.parse_args()
 	
-	forwards = [ 143, 587 ]
-	args = ["ssh", "-Nnax" ]
+	forwards = [ "imap", "submission" ]
+	ssh_command = ["ssh", "-NnaxT", "-o", "ExitOnForwardFailure=yes" ]
 	for p in forwards:
-		args.extend(["-L", "%d:localhost:%s" % (10000 + p, p)])
-	args.append(options.host)
+		port = socket.getservbyname(p, "tcp")
+		ssh_command.extend(["-L", "%d:localhost:%s" % (10000 + port, port)])
+	ssh_command.append(options.host)
+	if options.verbose:
+		print_command(ssh_command, options)
+		
+	ssh = subprocess.Popen(ssh_command, stdout=subprocess.PIPE)
 	
-	os.execvp(args[0], args)
+	redirect_command = ["sudo", "redirect_home"]
+	if options.verbose:
+		redirect_command.append("--verbose")
+		print_command(redirect_command, options)
+
+	redirect = subprocess.Popen(redirect_command, stdin=ssh.stdout)
+	
+	if ssh.wait():
+		print >> sys.stderr, os.path.basename(sys.argv[0]) + ":", ssh_command[0], "failed"
+	if redirect.wait():
+		print >> sys.stderr, os.path.basename(sys.argv[0]) + ":", redirect_command[0], "failed"
+		
+	return ssh.returncode + redirect.returncode
 	
 if __name__ == "__main__":
-	main()
+	sys.exit(main())
