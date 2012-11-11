@@ -1,5 +1,5 @@
 #!/usr/bin/python2.5
-# tunnel_home Copyright (c) 2012 Stuart Pook (http://www.pook.it/)
+# tunnel_home, Copyright (c) 2012 Stuart Pook (http://www.pook.it/)
 # This program is free software: you can redistribute it and/or modify it under
 # the terms of the GNU General Public License as published by the Free Software
 # Foundation, either version 3 of the License, or (at your option) any later version.
@@ -35,7 +35,7 @@ def get_forwards(options):
 	return forwards
 
 def main():
-	ports = [ 81, 80,
+	ports = [ 80,
 		22, 445, 444, 563, 110, 8080, 995, 993, 20, 21,
 		23, 220, 5061, 5000, 5001, 5050, 5100, 5101,
 		5060, 1352, 1293, 3389, 5900, 5800, 2401
@@ -46,12 +46,16 @@ def main():
 	parser.add_option("-H", "--host", help = "host to connect to [%default]", default="sftp")
 	parser.add_option("-v", "--verbose", action="store_true")
 	parser.add_option("-t", "--timeout", type='int', default=20, help="ssh timeout [%default]")
-	parser.add_option("-f", "--fake", action="store_true")
+	parser.add_option("-f", "--fake", action="store_true", help="do not do iptables")
+	parser.add_option("-u", "--unused", action="store_true", help="try a unused port first")
 	parser.add_option("-r", "--redirect", help = "redirect command [%default]", default="redirect_home")
 
 	(options, args) = parser.parse_args()
 	
 	forwards = get_forwards(options)
+	
+	if options.unused:
+		ports = [81] + ports
 	
 	ssh_base = ["ssh", "-NnaxT",
 		"-o", "ControlMaster=yes",
