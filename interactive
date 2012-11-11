@@ -1,0 +1,47 @@
+#!/usr/bin/python
+# interactive, Copyright (C) 2012 Stuart Pook
+# run a program until the user says to stop
+# This program is free software: you can redistribute it and/or modify it under
+# the terms of the GNU General Public License as published by the Free Software
+# Foundation, either version 3 of the License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+# FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+# work with python2.5
+
+from __future__ import with_statement
+
+import os, subprocess, sys, time
+
+def main():
+	if len(sys.argv) == 1:
+		print >> sys.stderr, os.basename(sys.argv[0]), "must provide a command to run"
+		return 1
+		
+	command = sys.argv[1]
+	while True:
+		status = subprocess.call(sys.argv[1:])
+		print '"%s"' % sys.argv[1],
+		if status:
+			print "failed with status", status,
+		else:
+			print "succeeded",
+		print "run again [yes]?",
+		f = sys.stdin.readline()
+		if not f:
+			print "bad read"
+			break
+		if f[0] == "n":
+			print "quiting as you said", f.strip()
+			time.sleep(10)
+			break
+		
+	return status
+
+if __name__ == "__main__":
+	sys.exit(main())
