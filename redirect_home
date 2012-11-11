@@ -32,7 +32,7 @@ def main():
 	iptables = "/sbin/iptables"
 	base = [ "OUTPUT", "--table", "nat","--protocol", "tcp", "--destination", options.destination, "--jump", "REDIRECT"]
 	
-	signal.signal(signal.SIGHUP. signal.SIG_IGN)
+	signal.signal(signal.SIGHUP, signal.SIG_IGN)
 	rules = []
 	try:
 		for p in forwards:
