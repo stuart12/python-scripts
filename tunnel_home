@@ -14,43 +14,67 @@ from __future__ import with_statement
 
 import os, optparse, sys, subprocess, socket, pipes
 
+class MyError(Exception):
+	pass
+
 def print_command(command, options):
 	if options.verbose:
 		print " ".join(pipes.quote(f) for f in command)
 
 def main():
+	ports = [ 81, 80, 22, 445, 444, 563, 110, 8080, 995, 993, 20, 21, 23, 220, 5061, 5000, 5001, 5050, 5100, 5101, 5060, 1352, 1293, 3389, 5900, 5800, 2401 ]
 	parser = optparse.OptionParser()
 	parser.disable_interspersed_args()
 	
 	parser.add_option("-H", "--host", help = "host to connect to [%default]", default="sftp")
-	parser.add_option("-v", "--verbose", action="store_true", dest="verbose", default=False)
-	
+	parser.add_option("-v", "--verbose", action="store_true")
+	parser.add_option("-t", "--timeout", type='int', default=2)
+	parser.add_option("-f", "--fake", action="store_true")
+
 	(options, args) = parser.parse_args()
 	
 	forwards = [ "imap", "submission" ]
-	ssh_command = ["ssh", "-NnaxT", "-o", "ExitOnForwardFailure=yes" ]
+	ssh_base = ["ssh", "-NnaxT",
+		"-o", "ControlMaster=yes",
+		"-o", "ExitOnForwardFailure=yes",
+		"-o", "PermitLocalCommand=yes",
+		"-o", "LocalCommand=echo ok",
+		"-o", "ConnectTimeout=%d" % options.timeout]
 	for p in forwards:
 		port = socket.getservbyname(p, "tcp")
-		ssh_command.extend(["-L", "%d:localhost:%s" % (10000 + port, port)])
-	ssh_command.append(options.host)
-	if options.verbose:
-		print_command(ssh_command, options)
+		ssh_base.extend(["-L", "%d:localhost:%s" % (10000 + port, port)])
 		
-	ssh = subprocess.Popen(ssh_command, stdout=subprocess.PIPE)
+	for port in ports:
+		ssh_command = ssh_base + ["-p", str(port), options.host]
+		ssh_command.append(options.host)
+		
+		if options.verbose:
+			print_command(ssh_command, options)
+		
+		ssh = subprocess.Popen(ssh_command, stdout=subprocess.PIPE)
+		
+		reply = ssh.stdout.readline()
+		if reply.strip() == "ok":
+			break
+		ssh.wait()
+	else:
+		raise MyError("no connections got through during the %d second timeout" %  options.timeout)
 	
-	redirect_command = ["sudo", "redirect_home"]
-	if options.verbose:
-		redirect_command.append("--verbose")
-		print_command(redirect_command, options)
+	if options.fake:
+		redirect_command = ["sh", "-c", "echo fake; read r; echo faked; exit 0"]
+	else:
+		redirect_command = ["sudo", "redirect_home"]
+		if options.verbose:
+			redirect_command.append("--verbose")
+			print_command(redirect_command, options)
 
 	redirect = subprocess.Popen(redirect_command, stdin=ssh.stdout)
 	
-	if ssh.wait():
-		print >> sys.stderr, os.path.basename(sys.argv[0]) + ":", ssh_command[0], "failed"
+	ssh.wait()
 	if redirect.wait():
 		print >> sys.stderr, os.path.basename(sys.argv[0]) + ":", redirect_command[0], "failed"
 		
-	return ssh.returncode + redirect.returncode
+	return redirect.returncode
 	
 if __name__ == "__main__":
 	sys.exit(main())
