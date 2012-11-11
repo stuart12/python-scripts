@@ -1,0 +1,49 @@
+#!/usr/bin/python2.5
+# redirect_home Copyright (c) 2012 Stuart Pook (http://www.pook.it/)
+# This program is free software: you can redistribute it and/or modify it under
+# the terms of the GNU General Public License as published by the Free Software
+# Foundation, either version 3 of the License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+# FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+from __future__ import with_statement
+
+import os, optparse, pipes, socket, subprocess, sys
+
+def check_call(command, options):
+	if options.verbose:
+		print " ".join(pipes.quote(f) for f in command)
+	subprocess.check_call(command, close_fds=True)
+
+def main():
+	parser = optparse.OptionParser()
+	parser.disable_interspersed_args()
+	
+	parser.add_option("-v", "--verbose", action="store_true", dest="verbose", default=False)
+	parser.add_option("-d", "--destination", help = "host to connect to [%default]", default="pook")
+	
+	(options, args) = parser.parse_args()
+	
+	forwards = [ "imap", "submission" ]
+	iptables = "/sbin/iptables"
+	base = [ "OUTPUT", "--table", "nat","--protocol", "tcp", "--destination", options.destination, "--jump", "REDIRECT"]
+	
+	rules = []
+	try:
+		for p in forwards:
+			rule = base + ["--dport", p, "--to-ports", str(10000 + socket.getservbyname(p, "tcp"))]
+			command = [iptables,"--append"] + rule
+			check_call(command, options)
+			rules.append(rule)
+		sys.stdin.read(1)
+	finally:
+		for rule in rules:
+			command =  [iptables, "--delete"] + rule
+			check_call(command, options)
+	
+if __name__ == "__main__":
+	main()
