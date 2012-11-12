@@ -178,8 +178,6 @@ class Example(QtGui.QWidget):
 			print "     ", i, dict[i]
 		metadata = dict.get('Metadata', None)
 		if metadata:
-			for i in metadata:
-				print "           ", i, metadata[i]
 			title = metadata.get("xesam:title", "")
 			xartist = metadata.get("xesam:artist", "")
 			if isinstance(xartist, dbus.Array):
