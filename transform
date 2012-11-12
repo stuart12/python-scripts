@@ -54,7 +54,9 @@ def reap(done, ntasks, running, options):
 					print >> sys.stderr, "mv", result[0], result[1]
 				os.rename(result[0], result[1])
 				if not options.quiet:
-					print "%d/%d (%2.0f%%)" % (done + 1, ntasks, done * 100.0 / ntasks), os.path.basename(result[1])
+					done += 1
+					n = str(ntasks)
+					print "%*d/%s (%3.0f%%)" % (len(n), done, n, done * 100.0 / ntasks), os.path.basename(result[1])
 			break
 
 def start_task(command, in_file, out_file, directories, options):
@@ -79,7 +81,7 @@ def execute_tasks(tasks, map, options):
 	directory_cache = set()
 	ntasks = len(tasks)
 	if not options.quiet:
-		print ntasks, "tasks to run"
+		print ntasks, "tasks to run on", options.ncpus, "cpus"
 	try:
 		for task in tasks:
 			if len(running) == options.ncpus:
