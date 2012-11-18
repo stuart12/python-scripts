@@ -1,0 +1,42 @@
+#!/usr/bin/python3
+# amarok_compress Copyright (c) 2012 Stuart Pook (http://www.pook.it/)
+# extract files from amarok 2.x and compress FLAC files
+# This program is free software: you can redistribute it and/or modify it under
+# the terms of the GNU General Public License as published by the Free Software
+# Foundation, either version 3 of the License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+# FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+import subprocess, sys, os
+
+class MyError(Exception):
+	pass
+
+def main():
+	c1 = ["amarok_extract"]
+	p1 = subprocess.Popen(c1, stdout=subprocess.PIPE)
+	
+	os.nice(10)
+	c2 = [ "transform", "--delete", "--list" ]
+	c2.extend(sys.argv[1:])
+	c2.append("/disks/shared/music")
+	c2.append("/disks/shared/tmp/compressed_music")
+	
+	p2 = subprocess.Popen(c2, stdin=p1.stdout)
+	
+	p1.stdout.close()  # Allow p1 to receive a SIGPIPE if p2 exits.
+	
+	p1.wait()
+	p2.wait()
+	if p1.return_code  != 0:
+		raise MyError(c1[0] + " failed")
+	if p2.return_code  != 0:
+		raise MyError(c2[0] + " failed")
+		
+if __name__ == "__main__":
+	main()
+	

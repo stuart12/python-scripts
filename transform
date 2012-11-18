@@ -15,7 +15,7 @@
 # must work with python 2.5
 from __future__ import with_statement
 
-import os, optparse, sys, subprocess
+import os, optparse, sys, subprocess, time
 
 class MyError(Exception):
 	pass
@@ -29,6 +29,7 @@ def raiseit(e):
 		
 def read_files(dir, suffixes):
 	files = []
+	dir = dir.rstrip('/')
 	for dirpath, dirname, filenames in os.walk(dir, onerror=raiseit):
 		for f in filenames:
 			l = os.path.splitext(f.decode('utf-8'))
@@ -60,25 +61,30 @@ def reap(done, ntasks, running, options):
 			break
 
 def start_task(command, in_file, out_file, directories, options):
-	dir = os.path.dirname(out_file)
-	n = len(directories)
-	directories.add(dir)
-	if len(directories) != n:
-		try:
-			os.stat(dir)
-		except OSError:
-			if options.verbose:
-				print "mkdir -p", dir
-			os.makedirs(dir)
-			
+	directories.mkdir_for_file(out_file)			
 	if options.verbose:
 		print command, '<', in_file, '>', out_file
 	return subprocess.Popen(command, stdin = open(in_file), stdout=open(out_file, "w"))
 	
-def execute_tasks(tasks, map, options):
+class directory_maker():
+	def __init__(self, options):
+		self.options = options
+		self.cache = set()
+	def mkdir_for_file(self, file):
+		dir = os.path.dirname(file)
+		n = len(self.cache)
+		self.cache.add(dir)
+		if len(self.cache) != n:
+			try:
+				os.stat(dir)
+			except OSError:
+				if self.options.verbose:
+					print "mkdir -p", dir
+				os.makedirs(dir)
+	
+def execute_tasks(tasks, map, options, directory_cache):
 	done = 0
 	running = dict()
-	directory_cache = set()
 	ntasks = len(tasks)
 	if not options.quiet:
 		print ntasks, "tasks to run on", options.ncpus, "cpus"
@@ -104,9 +110,10 @@ def delete(s, v):
 	s.discard(v)
 	return n != len(s)
 
-def transform(in_files, out_files, mapping, options):
+def transformer(in_files, out_files, mapping, options):
 	map = dict([[l[0], l[1:]]  for l in mapping])
 	out_set = set(out_files)
+	directory_cache = directory_maker(options)
 	
 	tasks = []
 	for in_file in in_files:
@@ -119,17 +126,27 @@ def transform(in_files, out_files, mapping, options):
 			print  >> sys.stderr, out_file
 			raise
 		if not delete(out_set, out_file) or os.path.getmtime(infile) > os.path.getmtime(outfile):
-			tasks.append((instruction[1], infile, outfile))
+			command = instruction[1]
+			if command:
+				tasks.append((command, infile, outfile))
+			else:
+				if options.verbose:
+					print "ln", infile, outfile
+				directory_cache.mkdir_for_file(outfile)
+				os.link(infile, outfile)
 
-	execute_tasks(tasks, map, options)
-	if options.delete:
+	execute_tasks(tasks, map, options, directory_cache)
+	if options.delete or options.delete_sleep:
 		if options.verbose:
 			print len(out_set), "files to delete"
 		for out in out_set:
 			f = os.path.join(options.target_dir, out[0] + out[1])
-			os.remove(f)
 			if not options.quiet:
 				print "rm", f
+			if options.delete_sleep:
+				time.sleep(4)
+			os.remove(f)
+			
 
 def count_cpus():
 	n = 0;
@@ -139,40 +156,74 @@ def count_cpus():
 				n += 1
 	return n
 	
+def read_list(suffixes):
+	files = []
+	for line in sys.stdin.readlines():
+		f = line.strip()
+		sep = os.path.splitext(f)
+		if sep[1] in suffixes:
+			files.append(sep)
+	return files
+
 def main(argv):
-	mapping = (
-		(u".cr2", u".jpg", ("cr2-to-jpeg")),
-		(u".flac", u".ogg", ("oggenc", "--quiet", "--quality=5", "-"))
+	transform = (
+		(".cr2", ".jpg", ("cr2-to-jpeg")),
+		(".flac", ".ogg", ("oggenc", "--quiet", "--quality=5", "-"))
 	)
+	link = [ ".mp3" ]
+	
 	parser = optparse.OptionParser(usage="usage: %prog [options] source_dir target_dir")
 	parser.disable_interspersed_args()	
 	parser.add_option("-v", "--verbose", action="store_true", help="verbose message")
 	parser.add_option("-i", "--interactive", action="store_true", help="interactive mode")
+	parser.add_option("-l", "--list", action="store_true", help="read list from stdin")
 	parser.add_option("-D", "--delete", action="store_true", help="delete old files")
+	parser.add_option("-C", "--delete_sleep", action="store_true", help="delete old files after sleep")
 	parser.add_option("-q", "--quiet", action="store_false", default=False, help="silence")
 	parser.add_option("-t", "--target_dir", default=None, help="target directory")
 	parser.add_option("-s", "--source_dir", default=None, help="source directory")
 	parser.add_option("--ncpus", default = count_cpus(), type='int', help="number of cpus to use [%default]")
 	(options, args) = parser.parse_args()
-	
-	if len(args) == 2:
-		options.source_dir = args[0]
-		options.target_dir = args[1]
-	else:
-		parser.error("must supply 2 arguments (%d)" % len(args))
-		sys.exit(1)
+			
 	if options.ncpus <= 0:
 		print >> sys.stderr, "must have at least 1 cpu"
 		sys.exit(1)
+		
+	mapping = list(transform)
+	for i in link:
+		mapping.append((i, i, None))
 
-	in_files = read_files(options.source_dir, frozenset([f[0] for f in mapping]))
+	
+	i = 0
+	if options.source_dir == None:
+		if i == len(args):
+			parser.error("must supply an argument for source_dir")
+			sys.exit(1)
+		options.source_dir = args[i]
+		i += 1
+	if options.target_dir == None:
+		if i == len(args):
+			parser.error("must supply an argument for target_dir " + str(args))
+			sys.exit(1)
+		options.target_dir = args[i]
+		i += 1
+	if i != len(args):
+		parser.error("too many arguments: " + str(args))
+		sys.exit(1)
+	
+	input_suffixes = frozenset([f[0] for f in mapping])
+	if options.list:
+		in_files = read_list(input_suffixes)
+	else:
+		in_files = read_files(options.source_dir, input_suffixes)
+		
 	out_files = read_files(options.target_dir, set([f[1] for f in mapping]))
 	
 	if options.verbose:
 		print "using", options.ncpus, "cpus"
 		print len(in_files), "source files,", len(out_files), "target files"
 	
-	transform(in_files, out_files, mapping, options)
+	transformer(in_files, out_files, mapping, options)
 	if options.interactive:
 		print "hit return to exit ",
 		sys.stdin.readline()

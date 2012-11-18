@@ -1,0 +1,49 @@
+#!/usr/bin/python3
+# amarok_extract Copyright (c) 2012 Stuart Pook (http://www.pook.it/)
+# retrieve a list of all files in the amarok database with a non zero rating
+# This program is free software: you can redistribute it and/or modify it under
+# the terms of the GNU General Public License as published by the Free Software
+# Foundation, either version 3 of the License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+# FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+import mysql.connector
+import configparser
+import optparse
+import os
+
+def main():
+	parser = optparse.OptionParser()
+	parser.add_option("-c", "--config", default=os.path.expanduser("~/etc/mysql-passwords/amarokreader.cnf"))
+	parser.add_option("-s", "--strip", default="./disks/shared/music/")
+	parser.add_option("-r", "--rating", type=int, default=1)
+	(options, args) = parser.parse_args()
+	config = configparser.SafeConfigParser()
+	config.read(options.config)
+	user = config.get('client', "user")
+	password =  config.get('client', "password")
+	database =  config.get('client', "database")
+	print(user)
+	print(password)
+	print(options.rating)
+	cnx = mysql.connector.connect(user=user, password=password, host='localhost',database=database)
+	cursor = cnx.cursor()
+	# http://dev.mysql.com/doc/connector-python/en/myconnpy_example_cursor_select.html
+	query = ("select urls.rpath from statistics, urls where"
+		" statistics.rating >= %s"
+		" and urls.id = statistics.id"
+		" and urls.deviceid = -1")
+	print(query)
+	cursor.execute(query, (options.rating, ))
+	for file, in cursor:
+		d = file.decode()
+		if d.startswith(options.strip):
+			print(d[len(options.strip):])
+	cursor.close()
+	cnx.close()
+if __name__ == "__main__":
+	main()
