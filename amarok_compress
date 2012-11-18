@@ -17,13 +17,14 @@ class MyError(Exception):
 	pass
 
 def main():
-	c1 = ["amarok_extract"]
+	root = "/disks/shared/music"
+	c1 = ["amarok_extract", "--strip", "." + root + "/"]
 	p1 = subprocess.Popen(c1, stdout=subprocess.PIPE)
 	
 	os.nice(10)
 	c2 = [ "transform", "--delete", "--list" ]
 	c2.extend(sys.argv[1:])
-	c2.append("/disks/shared/music")
+	c2.append(root)
 	c2.append("/disks/shared/tmp/compressed_music")
 	
 	p2 = subprocess.Popen(c2, stdin=p1.stdout)
