@@ -33,9 +33,9 @@ def main():
 	
 	p1.wait()
 	p2.wait()
-	if p1.return_code  != 0:
+	if p1.returncode  != 0:
 		raise MyError(c1[0] + " failed")
-	if p2.return_code  != 0:
+	if p2.returncode  != 0:
 		raise MyError(c2[0] + " failed")
 		
 if __name__ == "__main__":
