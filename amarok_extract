@@ -18,26 +18,22 @@ import os
 
 def main():
 	parser = optparse.OptionParser()
-	parser.add_option("-c", "--config", default=os.path.expanduser("~/etc/mysql-passwords/amarokreader.cnf"))
-	parser.add_option("-s", "--strip", default="./disks/shared/music/")
-	parser.add_option("-r", "--rating", type=int, default=1)
+	parser.add_option("-c", "--config", default=os.path.expanduser("~/etc/mysql-passwords/amarokreader.cnf"), help="password, user, database config [%default]")
+	parser.add_option("-s", "--strip", help = "print and strip if starts with this string [%default]", default="")
+	parser.add_option("-r", "--rating", help="minumim rating [%default]", type=int, default=1)
 	(options, args) = parser.parse_args()
 	config = configparser.SafeConfigParser()
 	config.read(options.config)
 	user = config.get('client', "user")
 	password =  config.get('client', "password")
 	database =  config.get('client', "database")
-	print(user)
-	print(password)
-	print(options.rating)
-	cnx = mysql.connector.connect(user=user, password=password, host='localhost',database=database)
+	cnx = mysql.connector.connect(user=user, password=password, host='localhost', database=database)
 	cursor = cnx.cursor()
 	# http://dev.mysql.com/doc/connector-python/en/myconnpy_example_cursor_select.html
 	query = ("select urls.rpath from statistics, urls where"
 		" statistics.rating >= %s"
 		" and urls.id = statistics.id"
 		" and urls.deviceid = -1")
-	print(query)
 	cursor.execute(query, (options.rating, ))
 	for file, in cursor:
 		d = file.decode()
