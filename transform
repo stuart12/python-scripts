@@ -82,12 +82,12 @@ class directory_maker():
 					print "mkdir -p", dir
 				os.makedirs(dir)
 	
-def execute_tasks(tasks, map, options, directory_cache):
+def execute_tasks(tasks, map, options, directory_cache, linked):
 	done = 0
 	running = dict()
 	ntasks = len(tasks)
 	if not options.quiet:
-		print ntasks, "tasks to run on", options.ncpus, "cpus"
+		print linked, "files linked,", ntasks, "tasks to run on", options.ncpus, "cpus"
 	try:
 		for task in tasks:
 			if len(running) == options.ncpus:
@@ -115,6 +115,7 @@ def transformer(in_files, out_files, mapping, options):
 	out_set = set(out_files)
 	directory_cache = directory_maker(options)
 	
+	linked = 0
 	tasks = []
 	for in_file in in_files:
 		instruction = map[in_file[1]]
@@ -134,8 +135,9 @@ def transformer(in_files, out_files, mapping, options):
 					print "ln", infile, outfile
 				directory_cache.mkdir_for_file(outfile)
 				os.link(infile, outfile)
+				linked += 1
 
-	execute_tasks(tasks, map, options, directory_cache)
+	execute_tasks(tasks, map, options, directory_cache, linked)
 	if options.delete or options.delete_sleep:
 		if options.verbose:
 			print len(out_set), "files to delete"
