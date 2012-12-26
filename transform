@@ -13,9 +13,14 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 # must work with python 2.5
+
+# should remove empty directories
+
 from __future__ import with_statement
 
 import os, optparse, sys, subprocess, time
+import errno
+import pipes
 
 class MyError(Exception):
 	pass
@@ -27,24 +32,54 @@ def transform_files(mapping_info, src_dir, src_files, dest_dir):
 def raiseit(e):
 	raise e
 		
-def read_files(dir, suffixes):
+def read_files(dir, suffixes, options):
 	files = []
 	dir = dir.rstrip('/')
-	for dirpath, dirname, filenames in os.walk(dir, onerror=raiseit):
-		for f in filenames:
-			l = os.path.splitext(f.decode('utf-8'))
-			if l[1] in suffixes:
-				files.append((os.path.join(dirpath[len(dir) + 1:], l[0]), l[1]))
+	walk(dir, "", files, suffixes, options)
 	return files
 	
+def walk(dir, extra, files, suffixes, options):
+	print "walk", dir
+	for dirpath, dirnames, filenames in os.walk(dir, onerror=raiseit):
+		dirpath_decoded = dirpath.decode('utf-8')
+		for f in filenames:
+			de = f.decode('utf-8')
+			sub_dir, base = os.path.split(de)
+			if not base.startswith(options.tmp_prefix):
+				fields = base.rsplit('.', 1)
+				if len(fields) == 2:
+					head, tail = fields
+					dtail = "." + tail
+	#				print(f, dtail, suffixes, dir, dirpath)
+					if dtail in suffixes:
+						e0 = os.path.join(dirpath_decoded[len(dir) + 1:], sub_dir, head)
+						files.append((e0, dtail))
+		for d in dirnames:
+#			path = os.path.join(dirpath, d)
+#			print "recusive",path,  dir, dirpath, d
+#			if os.path.islink(path):
+#				walk(path, os.path.join(extra, d), files, suffixes, options)
+			pass
+	
 def reap(done, ntasks, running, options):
+	assert len(running)
 	while True:
-		pid, status = os.wait()
+		assert len(running)
+		try:
+			pid, status = os.wait()
+		except OSError, e:
+			if e.errno == errno.ECHILD:
+				print >> sys.stderr, "wait failed with ECHILD with unacounted for children", str(running)
+			raise
 		result = running.get(pid)
 		if result:
 			del running[pid]
 			if not ntasks or status:
-				os.remove(result[0])
+				try:
+					os.remove(result[0])
+				except OSError, e:
+					if e.errno != errno.ENOENT:
+						raise(e)
 			if ntasks:
 				if status != 0:
 					myname = os.path.basename(sys.argv[0])
@@ -59,19 +94,25 @@ def reap(done, ntasks, running, options):
 					n = str(ntasks)
 					print "%*d/%s (%3.0f%%)" % (len(n), done, n, done * 100.0 / ntasks), os.path.basename(result[1])
 			break
+		else:
+			print >> sys.stderr, "unexpected child", pid, status
 
-def start_task(command, in_file, out_file, directories, options):
-	directories.mkdir_for_file(out_file)			
+def start_task(command, infile, outfile, directory_cache, options):
+	dir, base = os.path.split(outfile)
+	otmp = os.path.join(dir, options.tmp_prefix + base)
+	directory_cache.mkdir(dir)
+	c = command + [otmp, infile]
 	if options.verbose:
-		print command, '<', in_file, '>', out_file
-	return subprocess.Popen(command, stdin = open(in_file), stdout=open(out_file, "w"))
+		print " ".join(c)
+	return (subprocess.Popen(c), otmp)
 	
 class directory_maker():
 	def __init__(self, options):
 		self.options = options
 		self.cache = set()
 	def mkdir_for_file(self, file):
-		dir = os.path.dirname(file)
+		self.mkdir(os.path.dirname(file))
+	def mkdir(self, dir):
 		n = len(self.cache)
 		self.cache.add(dir)
 		if len(self.cache) != n:
@@ -94,8 +135,7 @@ def execute_tasks(tasks, map, options, directory_cache, linked):
 				reap(done, ntasks, running, options)
 				done += 1
 				
-			otmp = task[2] + ".tmp"
-			proc = start_task(task[0], task[1], otmp, directory_cache, options)
+			proc, otmp = start_task(task[0], task[1], task[2], directory_cache, options)
 			running[proc.pid] = (otmp, task[2])
 
 		while len(running):
@@ -105,6 +145,11 @@ def execute_tasks(tasks, map, options, directory_cache, linked):
 		while len(running):
 			reap(-1, 0, running, options)
 
+def insert(s, v):
+	n = len(s)
+	s.add(v)
+	return n != len(s)
+
 def delete(s, v):
 	n = len(s)
 	s.discard(v)
@@ -112,43 +157,50 @@ def delete(s, v):
 
 def transformer(in_files, out_files, mapping, options):
 	map = dict([[l[0], l[1:]]  for l in mapping])
-	out_set = set(out_files)
+	out_set = frozenset(out_files)
 	directory_cache = directory_maker(options)
+	creating = set()
+	needed = set()
 	
 	linked = 0
 	tasks = []
 	for in_file in in_files:
 		instruction = map[in_file[1]]
 		out_file = (in_file[0], instruction[0])
-		infile = os.path.join(options.source_dir, in_file[0] + in_file[1])
-		try:
-			outfile = os.path.join(options.target_dir, out_file[0] + out_file[1])
-		except UnicodeDecodeError:
-			print  >> sys.stderr, out_file
-			raise
-		if not delete(out_set, out_file) or os.path.getmtime(infile) > os.path.getmtime(outfile):
-			command = instruction[1]
-			if command:
-				tasks.append((command, infile, outfile))
-			else:
-				if options.verbose:
-					print "ln", infile, outfile
-				directory_cache.mkdir_for_file(outfile)
-				os.link(infile, outfile)
-				linked += 1
+		needed.add(out_file)
+#		print(in_file, out_file)
+		if out_file not in creating:
+			infile = os.path.join(options.source_dir, in_file[0] + in_file[1])
+			try:
+				outfile = os.path.join(options.target_dir, out_file[0] + out_file[1])
+			except UnicodeDecodeError:
+				print >> sys.stderr, out_file
+				raise
+			if out_file not in out_set or os.path.getmtime(infile) > os.path.getmtime(outfile):
+				creating.add(out_file)
+				command = instruction[1]
+#				print("adding", out_file, infile, outfile)
+				if command:
+					tasks.append((command, infile, outfile))
+				else:
+					if options.verbose:
+						print "ln", pipes.quote(infile), pipes.quote(outfile)
+					directory_cache.mkdir_for_file(outfile)
+					os.link(infile, outfile)
+					linked += 1
 
 	execute_tasks(tasks, map, options, directory_cache, linked)
 	if options.delete or options.delete_sleep:
+		to_delete = out_set - needed
 		if options.verbose:
-			print len(out_set), "files to delete"
-		for out in out_set:
+			print len(to_delete), "files to delete"
+		for out in to_delete:
 			f = os.path.join(options.target_dir, out[0] + out[1])
 			if not options.quiet:
 				print "rm", f
 			if options.delete_sleep:
 				time.sleep(4)
 			os.remove(f)
-			
 
 def count_cpus():
 	n = 0;
@@ -161,7 +213,7 @@ def count_cpus():
 def read_list(suffixes):
 	files = []
 	for line in sys.stdin.readlines():
-		f = line.strip()
+		f = line.strip().decode('utf-8')
 		sep = os.path.splitext(f)
 		if sep[1] in suffixes:
 			files.append(sep)
@@ -169,10 +221,11 @@ def read_list(suffixes):
 
 def main(argv):
 	transform = (
-		(".cr2", ".jpg", ("cr2-to-jpeg")),
-		(".flac", ".ogg", ("oggenc", "--quiet", "--quality=5", "-"))
+		(u".cr2", u".jpg", ["cr2-to-jpeg"]),
+		(u".cr2.pp3", u".jpg", ["cr2-to-jpeg"]),
+		(u".flac", u".ogg", ["oggenc", "--quiet", "--quality=5", "-o"])
 	)
-	link = [ ".mp3" ]
+	link = [ u".mp3" ]
 	
 	parser = optparse.OptionParser(usage="usage: %prog [options] source_dir target_dir")
 	parser.disable_interspersed_args()	
@@ -181,7 +234,8 @@ def main(argv):
 	parser.add_option("-l", "--list", action="store_true", help="read list from stdin")
 	parser.add_option("-D", "--delete", action="store_true", help="delete old files")
 	parser.add_option("-C", "--delete_sleep", action="store_true", help="delete old files after sleep")
-	parser.add_option("-q", "--quiet", action="store_false", default=False, help="silence")
+	parser.add_option("-q", "--quiet", action="store_true", default=False, help="silence")
+	parser.add_option("-p", "--tmp_prefix", default="#", help="prefix for temporary files [%default]")
 	parser.add_option("-t", "--target_dir", default=None, help="target directory")
 	parser.add_option("-s", "--source_dir", default=None, help="source directory")
 	parser.add_option("--ncpus", default = count_cpus(), type='int', help="number of cpus to use [%default]")
@@ -217,9 +271,9 @@ def main(argv):
 	if options.list:
 		in_files = read_list(input_suffixes)
 	else:
-		in_files = read_files(options.source_dir, input_suffixes)
+		in_files = read_files(options.source_dir, input_suffixes, options)
 		
-	out_files = read_files(options.target_dir, set([f[1] for f in mapping]))
+	out_files = read_files(options.target_dir, set([f[1] for f in mapping]), options)
 	
 	if options.verbose:
 		print "using", options.ncpus, "cpus"
