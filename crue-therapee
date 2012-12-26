@@ -1,0 +1,61 @@
+#!/usr/bin/python3
+# -*- coding: utf-8 -*-
+# crue-therapee Copyright (c) 2012  Stuart Pook (http://www.pook.it/)
+# crue-therapee notes the modification time and contents of all the .cr2.pp3 files
+# in the given directoriy, runs rawtherapee and then restores the modifcation
+# times of all the files if their contents have not changed.
+#
+# This program is free software: you can redistribute it and/or modify it under
+# the terms of the GNU General Public License as published by the Free Software
+# Foundation, either version 3 of the License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY orFITNESS
+# FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+import os
+import errno
+import sys
+import subprocess
+
+def start_rawtherapee():
+	return subprocess.call(["/usr/bin/rawtherapee"] + sys.argv[1:])
+
+def main():
+	if len(sys.argv) != 2:
+		r = start_rawtherapee()
+	else:
+		try:
+			files = os.listdir(sys.argv[1])
+		except OSError as e:
+			if e.errno != errno.ENOENT and e.errno != errno.ENOTDIR:
+				raise
+			r = start_rawtherapee()
+		else:
+			pp3 = []
+			for file_name in files:
+				if file_name.endswith(".cr2.pp3"):
+					with open(file_name) as f:
+						pp3.append((file_name, os.fstat(f.fileno()).st_mtime, f.read()))
+
+			r = start_rawtherapee()
+			
+			for file in pp3:
+				print("checking", file[0])
+				try:
+					with open(file[0]) as f:
+						if f.read() == file[2] and os.fstat(f.fileno()).st_mtime > file[1]:
+							print("restoring", file[0])
+							# need python 3.3 to be able to pass a file descriptor to os.utime
+							os.utime(file[0], (file[1], file[1]))
+				except IOError as e:
+					if e.errno != errno.ENOENT:
+						raise
+	return r
+
+if __name__ == "__main__":
+	sys.exit(main())
+	
