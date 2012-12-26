@@ -17,12 +17,22 @@ class MyError(Exception):
 	pass
 
 def main():
+#	parser = optparse.OptionParser()
+#	parser.disable_interspersed_args()	
+#	parser.add_option("-v", "--verbose", action="store_true", help="verbose message")
+#	(options, args) = parser.parse_args()
+#		if len(args) != 0:
+#		parser.error("must supply 0 arguments")
+
 	root = "/disks/shared/music"
 	c1 = ["amarok_extract", "--strip", "." + root + "/"]
 	p1 = subprocess.Popen(c1, stdout=subprocess.PIPE)
 	
 	os.nice(10)
 	c2 = [ "transform", "--delete", "--list" ]
+#	if options.verbose:
+#		c2.append("--verbose")
+		
 	c2.extend(sys.argv[1:])
 	c2.append(root)
 	c2.append("/disks/shared/tmp/compressed_music")
