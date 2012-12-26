@@ -1,0 +1,39 @@
+#!/usr/bin/python3
+# convert-all-photos Copyright (c) 2012 Stuart Pook (http://www.pook.it/)
+# convert all my CR2 (RAW) photos into JPEGs at all required resolutions
+# This program is free software: you can redistribute it and/or modify it under
+# the terms of the GNU General Public License as published by the Free Software
+# Foundation, either version 3 of the License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+# FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+import optparse
+import os
+import subprocess
+	
+def main():
+	parser = optparse.OptionParser(usage="usage: %prog [options] inputfile outputfile")
+	parser.add_option("-t", "--target_dir", default=os.path.expanduser("~/ws/converted-photos"), help="target directory [%default]")
+	parser.add_option("-s", "--source_dir", default=os.path.expanduser("~/photos-active"), help="source directory [%default]")
+	parser.add_option("-q", "--quiet", action="store_true", help="quiet")
+	(options, args) = parser.parse_args()
+	if len(args) != 0:
+		parser.error("must supply 0 arguments")
+	
+	dirs = os.listdir(options.target_dir)
+	print(dirs)
+	start = ["transform", "--delete"]
+	if options.quiet:
+			start.append("--quiet")
+	for d in dirs:
+		command = start + [ options.source_dir, os.path.join(options.target_dir, d)]
+		print(" ".join(command))
+		subprocess.check_call(command)
+	
+if __name__ == "__main__":
+	main()
