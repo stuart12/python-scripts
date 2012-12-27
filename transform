@@ -39,8 +39,8 @@ def read_files(dir, suffixes, options):
 	return files
 	
 def walk(dir, extra, files, suffixes, options):
-	print "walk", dir
-	for dirpath, dirnames, filenames in os.walk(dir, onerror=raiseit):
+	print "walk", dir, extra
+	for dirpath, dirnames, filenames in os.walk(os.path.join(dir, extra), onerror=raiseit):
 		dirpath_decoded = dirpath.decode('utf-8')
 		for f in filenames:
 			de = f.decode('utf-8')
@@ -55,10 +55,11 @@ def walk(dir, extra, files, suffixes, options):
 						e0 = os.path.join(dirpath_decoded[len(dir) + 1:], sub_dir, head)
 						files.append((e0, dtail))
 		for d in dirnames:
-#			path = os.path.join(dirpath, d)
-#			print "recusive",path,  dir, dirpath, d
-#			if os.path.islink(path):
-#				walk(path, os.path.join(extra, d), files, suffixes, options)
+			path = os.path.join(dirpath, d)
+			if os.path.islink(path):
+				ex = path[len(dir) + 1:]
+				print "recusive", dirpath, d, "path=", path, ex
+				walk(dir, ex, files, suffixes, options)
 			pass
 	
 def reap(done, ntasks, running, options):
@@ -134,9 +135,12 @@ def execute_tasks(tasks, map, options, directory_cache, linked):
 			if len(running) == options.ncpus:
 				reap(done, ntasks, running, options)
 				done += 1
-				
-			proc, otmp = start_task(task[0], task[1], task[2], directory_cache, options)
-			running[proc.pid] = (otmp, task[2])
+			
+			if options.dryrun:
+				print task
+			else:
+				proc, otmp = start_task(task[0], task[1], task[2], directory_cache, options)
+				running[proc.pid] = (otmp, task[2])
 
 		while len(running):
 			reap(done, ntasks, running, options)
@@ -196,11 +200,12 @@ def transformer(in_files, out_files, mapping, options):
 			print len(to_delete), "files to delete"
 		for out in to_delete:
 			f = os.path.join(options.target_dir, out[0] + out[1])
-			if not options.quiet:
+			if options.dryrun or not options.quiet:
 				print "rm", f
 			if options.delete_sleep:
 				time.sleep(4)
-			os.remove(f)
+			if not options.dryrun:
+				os.remove(f)
 
 def count_cpus():
 	n = 0;
@@ -230,6 +235,7 @@ def main(argv):
 	parser = optparse.OptionParser(usage="usage: %prog [options] source_dir target_dir")
 	parser.disable_interspersed_args()	
 	parser.add_option("-v", "--verbose", action="store_true", help="verbose message")
+	parser.add_option("-n", "--dryrun", action="store_true", help="dryrun")
 	parser.add_option("-i", "--interactive", action="store_true", help="interactive mode")
 	parser.add_option("-l", "--list", action="store_true", help="read list from stdin")
 	parser.add_option("-D", "--delete", action="store_true", help="delete old files")
@@ -286,4 +292,8 @@ def main(argv):
 	sys.exit(0)
 	
 if __name__ == "__main__":
-	main(sys.argv)
+	try:
+		main(sys.argv)
+	except MyError, e:
+		print >> sys.stderr, os.path.basename(sys.argv[0]) + ":", e.message.encode('utf-8')
+		sys.exit(1)
