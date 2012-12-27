@@ -16,11 +16,15 @@ import optparse
 import sys
 import subprocess
 import tempfile
+import pipes
 
 def strip_end(text, suffix):
 	if not text.endswith(suffix):
 		return text
 	return text[:-len(suffix)]
+	
+def myname():
+	return os.path.basename(sys.argv[0])
   
 def main():
 	parser = optparse.OptionParser(usage="usage: %prog [options] inputfile outputfile")
@@ -29,11 +33,12 @@ def main():
 		parser.error("must supply 2 arguments")
 		
 	output = args[0]
-	grandparent = os.path.split(os.path.dirname(os.path.dirname(output)))[1]
+	root = output.split('/', 1)[0]
+#	grandparent = os.path.split(os.path.dirname(os.path.dirname(output)))[1]
 	try:
-		size, quality = grandparent.split("-")
+		size, quality = root.split("-")
 	except ValueError:
-		sys.exit(os.path.basename(sys.argv[0]) + ": grandparent directory name must be in the form XX-YY, found: " + grandparent)
+		sys.exit(os.path.basename(sys.argv[0]) + ": top directory name must be in the form XX-YY, found: " + root)
 	pp3 = os.path.join(os.path.expanduser("~"), "lib", "RawTherapee", "resize", size + ".pp3")
 	with open(pp3) as dummy:
 		pass
@@ -48,6 +53,7 @@ def main():
 	stderr = tempfile.TemporaryFile(mode='w+')
 	status = subprocess.call(command, stdout=open("/dev/null", "w"), stderr=stderr)
 	if status:
+		print(myname()+ ":", "command failed (%d):" % status, " ".join(pipes.quote(c) for c in command), file=sys.stderr)
 		stderr.seek(0)
 		for line in stderr:
 			print(line, end='', file=sys.stderr)
