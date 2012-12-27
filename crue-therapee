@@ -36,7 +36,8 @@ def main():
 			r = start_rawtherapee()
 		else:
 			pp3 = []
-			for file_name in files:
+			for file in files:
+				file_name = os.path.join(sys.argv[1], file)
 				if file_name.endswith(".cr2.pp3"):
 					with open(file_name) as f:
 						pp3.append((file_name, os.fstat(f.fileno()).st_mtime, f.read()))
