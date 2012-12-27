@@ -1,6 +1,7 @@
 #!/usr/bin/python2.5
 # transform Copyright (c) 2012 Stuart Pook (http://www.pook.it/)
 # transform all the files in a directory using a set of rules
+#
 # This program is free software: you can redistribute it and/or modify it under
 # the terms of the GNU General Public License as published by the Free Software
 # Foundation, either version 3 of the License, or (at your option) any later version.
@@ -93,7 +94,7 @@ def reap(done, ntasks, running, options):
 				if not options.quiet:
 					done += 1
 					n = str(ntasks)
-					print "%*d/%s (%3.0f%%)" % (len(n), done, n, done * 100.0 / ntasks), os.path.basename(result[1])
+					print "%*d/%s (%3.0f%%) %s" % (len(n), done, n, done * 100.0 / ntasks, result[1][-options.max_filename_characters:])
 			break
 		else:
 			print >> sys.stderr, "unexpected child", pid, status
@@ -239,6 +240,7 @@ def main(argv):
 	parser.add_option("-i", "--interactive", action="store_true", help="interactive mode")
 	parser.add_option("-l", "--list", action="store_true", help="read list from stdin")
 	parser.add_option("-D", "--delete", action="store_true", help="delete old files")
+	parser.add_option("--max_filename_characters", type="int", default=40, help="maximum length of the file name to print [%default]")
 	parser.add_option("-C", "--delete_sleep", action="store_true", help="delete old files after sleep")
 	parser.add_option("-q", "--quiet", action="store_true", default=False, help="silence")
 	parser.add_option("-p", "--tmp_prefix", default="#", help="prefix for temporary files [%default]")
@@ -254,7 +256,6 @@ def main(argv):
 	mapping = list(transform)
 	for i in link:
 		mapping.append((i, i, None))
-
 	
 	i = 0
 	if options.source_dir == None:
