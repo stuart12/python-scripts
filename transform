@@ -1,4 +1,4 @@
-#!/usr/bin/python2.5
+#!/usr/bin/python2.5 -u
 # transform Copyright (c) 2012 Stuart Pook (http://www.pook.it/)
 # transform all the files in a directory using a set of rules
 #
@@ -43,18 +43,18 @@ def walk(dir, extra, files, suffixes, options):
 	print "walk", dir, extra
 	for dirpath, dirnames, filenames in os.walk(os.path.join(dir, extra), onerror=raiseit):
 		dirpath_decoded = dirpath.decode('utf-8')
+		filenames.sort()
 		for f in filenames:
 			de = f.decode('utf-8')
 			sub_dir, base = os.path.split(de)
 			if not base.startswith(options.tmp_prefix):
-				fields = base.rsplit('.', 1)
-				if len(fields) == 2:
-					head, tail = fields
-					dtail = "." + tail
-	#				print(f, dtail, suffixes, dir, dirpath)
-					if dtail in suffixes:
+				for suffix in suffixes:
+					if len(base) > len(suffix) and base.endswith(suffix):
+						head = base[:-len(suffix)]
+						dtail = base[-len(suffix):]
 						e0 = os.path.join(dirpath_decoded[len(dir) + 1:], sub_dir, head)
 						files.append((e0, dtail))
+						break
 		for d in dirnames:
 			path = os.path.join(dirpath, d)
 			if os.path.islink(path):
@@ -73,9 +73,8 @@ def reap(done, ntasks, running, options):
 			if e.errno == errno.ECHILD:
 				print >> sys.stderr, "wait failed with ECHILD with unacounted for children", str(running)
 			raise
-		result = running.get(pid)
+		result = running.pop(pid, None)
 		if result:
-			del running[pid]
 			if not ntasks or status:
 				try:
 					os.remove(result[0])
@@ -84,10 +83,9 @@ def reap(done, ntasks, running, options):
 						raise(e)
 			if ntasks:
 				if status != 0:
-					myname = os.path.basename(sys.argv[0])
 					if os.WIFEXITED(status):
-						raise MyError("%s: transform to %s failed (%d)" % (myname, result[1], os.WEXITSTATUS(status)))
-					raise MyError("%s: bad status for %s (%d)" % (myname, result[1], status))
+						raise MyError("transform to %s failed (%d)" % (result[1], os.WEXITSTATUS(status)))
+					raise MyError("bad status for %s (%d)" % (result[1], status))
 				if options.verbose:
 					print >> sys.stderr, "mv", result[0], result[1]
 				os.rename(result[0], result[1])
@@ -97,7 +95,7 @@ def reap(done, ntasks, running, options):
 					print "%*d/%s (%3.0f%%) %s" % (len(n), done, n, done * 100.0 / ntasks, result[1][-options.max_filename_characters:])
 			break
 		else:
-			print >> sys.stderr, "unexpected child", pid, status
+			raise MyError("unexpected child", pid, status)
 
 def start_task(command, infile, outfile, directory_cache, options):
 	dir, base = os.path.split(outfile)
