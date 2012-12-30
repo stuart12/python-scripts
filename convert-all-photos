@@ -19,7 +19,7 @@ import sys
 
 def main():
 	parser = optparse.OptionParser(usage="usage: %prog [options] inputfile outputfile")
-	parser.add_option("-t", "--target_dir", default=os.path.expanduser("~/ws/converted-photos"), help="target directory [%default]")
+	parser.add_option("-t", "--target_dir", default=os.path.expanduser("/disks/ws/converted-photos"), help="target directory [%default]")
 	parser.add_option("-s", "--source_dir", default=os.path.expanduser("~/photos"), help="source directory [%default]")
 	parser.add_option("-v", "--verbose", action="store_true", help="verbose")
 	parser.add_option("-q", "--quiet", action="store_true", help="quiet")
