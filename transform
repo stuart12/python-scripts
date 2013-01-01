@@ -51,7 +51,7 @@ def read_files(dir, suffixes, options):
 	return files
 	
 def walk(dir, extra, files, suffixes, options):
-	print "walk", dir, extra
+#	print "walk", dir, extra
 	for dirpath, dirnames, filenames in os.walk(os.path.join(dir, extra), onerror=raiseit):
 		dirpath_decoded = dirpath.decode('utf-8')
 		filenames.sort()
