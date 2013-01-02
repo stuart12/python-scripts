@@ -48,9 +48,11 @@ def main():
 					" and tracks.album = albums.id"
 					" and albums.name <> ''"
 					" and tracks.bitrate >= %s"
+					" and tracks.tracknumber is not null"
 			" group by albums.id"
-			" having count(*) = max(tracks.tracknumber)"
+			" having count(*) >= max(tracks.tracknumber)"
 				" and count(*) >= %s"
+				" and min(tracks.tracknumber) = 1"
 			" order by artists.name, albums.name")
 		cursor.execute(query, (options.bitrate, options.tracks))
 		for artist, album, bitrate, tracks in cursor:
