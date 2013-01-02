@@ -1,6 +1,9 @@
 #!/usr/bin/python3
-# amarok_extract Copyright (c) 2012 Stuart Pook (http://www.pook.it/)
+# amarok_extract Copyright (c) 2012, 2013 Stuart Pook (http://www.pook.it/)
+#
 # retrieve a list of all files in the amarok database with a non zero rating
+# or, using --albums, all complete albums give a minimum bitrate
+#
 # This program is free software: you can redistribute it and/or modify it under
 # the terms of the GNU General Public License as published by the Free Software
 # Foundation, either version 3 of the License, or (at your option) any later version.
@@ -11,6 +14,9 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+# http://forum.kde.org/viewtopic.php?f=115&t=107990
+
 import mysql.connector
 import configparser
 import optparse
@@ -20,7 +26,10 @@ def main():
 	parser = optparse.OptionParser()
 	parser.add_option("-c", "--config", default=os.path.expanduser("~/etc/mysql-passwords/amarokreader.cnf"), help="password, user, database config [%default]")
 	parser.add_option("-s", "--strip", help = "print and strip if starts with this string [%default]", default="")
+	parser.add_option("-b", "--bitrate", help="minumim bitrate [%default]", type=int, default=130)
+	parser.add_option("--tracks", help="minumim number of tracks in an album[%default]", type=int, default=3)
 	parser.add_option("-r", "--rating", help="minumim rating [%default]", type=int, default=1)
+	parser.add_option("-a", "--albums", action="store_true", help="print lint of albums")
 	(options, args) = parser.parse_args()
 	config = configparser.SafeConfigParser()
 	config.read(options.config)
@@ -30,15 +39,33 @@ def main():
 	cnx = mysql.connector.connect(user=user, password=password, host='localhost', database=database)
 	cursor = cnx.cursor()
 	# http://dev.mysql.com/doc/connector-python/en/myconnpy_example_cursor_select.html
-	query = ("select urls.rpath from statistics, urls where"
-		" statistics.rating >= %s"
-		" and urls.id = statistics.id"
-		" and urls.deviceid = -1")
-	cursor.execute(query, (options.rating, ))
-	for file, in cursor:
-		d = file.decode()
-		if d.startswith(options.strip):
-			print(d[len(options.strip):])
+	if options.albums:
+		query = ("select artists.name, albums.name, min(tracks.bitrate), count(*)"
+			" from artists, albums, tracks"
+			" where"
+					" albums.artist = artists.id"
+					" and tracks.artist = artists.id"
+					" and tracks.album = albums.id"
+					" and albums.name <> ''"
+					" and tracks.bitrate >= %s"
+			" group by albums.id"
+			" having count(*) = max(tracks.tracknumber)"
+				" and count(*) >= %s"
+			" order by artists.name, albums.name")
+		cursor.execute(query, (options.bitrate, options.tracks))
+		for artist, album, bitrate, tracks in cursor:
+			print("%s\t%s\t%d\t%d" % (artist.decode(), album.decode(), bitrate, tracks))
+
+	else:
+		query = ("select urls.rpath from statistics, urls where"
+			" statistics.rating >= %s"
+			" and urls.id = statistics.id"
+			" and urls.deviceid = -1")
+		cursor.execute(query, (options.rating, ))
+		for file, in cursor:
+			d = file.decode()
+			if d.startswith(options.strip):
+				print(d[len(options.strip):])
 	cursor.close()
 	cnx.close()
 if __name__ == "__main__":
