@@ -25,6 +25,7 @@ def main():
 	parser.add_option("-q", "--quiet", action="store_true", help="quiet")
 	parser.add_option("-n", "--dryrun", action="store_true", help="dryrun")
 	parser.add_option("--nice", type='int', default=10, help="nice [%default]")
+	parser.add_option("-c", "--ncpus", type='int', help="number of cpus to use")
 	(options, args) = parser.parse_args()
 	if len(args) != 0:
 		parser.error("must supply 0 arguments")
@@ -33,14 +34,16 @@ def main():
 	os.chdir(options.target_dir)
 	
 	dirs = os.listdir(".")
-	print(dirs)
 	start = ["transform", "--delete"]
+	if options.ncpus:
+		start.append("--ncpus=%d" % options.ncpus)
 	if options.quiet:
 			start.append("--quiet")
 	if options.dryrun:
 			start.append("--dryrun")
 	if options.verbose:
-			start.append("--verbose")
+		print(dirs)
+		start.append("--verbose")
 			
 	os.nice(options.nice)
 	for d in dirs:
