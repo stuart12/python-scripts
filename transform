@@ -202,10 +202,23 @@ def transformer(in_files, out_files, mapping, options):
 				if command:
 					tasks.append((command, infile, outfile))
 				else:
-					if options.verbose:
-						print "ln", pipes.quote(infile), pipes.quote(outfile)
 					directory_cache.mkdir_for_file(outfile)
-					os.link(infile, outfile)
+					try:
+						os.link(infile, outfile)
+						if options.verbose:
+							print "ln", pipes.quote(infile), pipes.quote(outfile)
+					except OSError, e:
+						if e.errno != errno.EXDEV:
+							raise
+						if infile[0] == '/':
+							source = infile
+						else:
+							raise
+						os.symlink(source, outfile)
+						if options.verbose:
+							print "ln -s", pipes.quote(source), pipes.quote(outfile)
+						with file(outfile) as f:
+							pass
 					linked += 1
 
 	execute_tasks(tasks, map, options, directory_cache, linked)
