@@ -22,6 +22,7 @@ from __future__ import with_statement
 import os, optparse, sys, subprocess, time
 import errno
 import pipes
+import stat
 
 class MyError(Exception):
 	pass
@@ -44,35 +45,43 @@ def transform_files(mapping_info, src_dir, src_files, dest_dir):
 def raiseit(e):
 	raise e
 		
-def read_files(dir, suffixes, options):
+def read_files(dir, suffixes, options, read_all_files):
 	files = []
 	dir = dir.rstrip('/')
-	walk(dir, "", files, suffixes, options)
+	walk(dir, "", files, suffixes, options, read_all_files)
 	return files
 	
-def walk(dir, extra, files, suffixes, options):
+def walk(dir, extra, files, suffixes, options, read_all_files):
 #	print "walk", dir, extra
 	for dirpath, dirnames, filenames in os.walk(os.path.join(dir, extra), onerror=raiseit):
 		dirpath_decoded = dirpath.decode('utf-8')
 		filenames.sort()
 		for f in filenames:
-			de = f.decode('utf-8')
-			sub_dir, base = os.path.split(de)
-			if not base.startswith(options.tmp_prefix):
-				for suffix in suffixes:
-					if len(base) > len(suffix) and base.endswith(suffix):
-						head = base[:-len(suffix)]
-						dtail = base[-len(suffix):]
-						e0 = os.path.join(dirpath_decoded[len(dir) + 1:], sub_dir, head)
-						files.append((e0, dtail))
-						break
+			if read_all_files or (os.stat(os.path.join(dirpath, f)).st_mode & options.file_permissions) == options.file_permissions:
+				de = f.decode('utf-8')
+				sub_dir, base = os.path.split(de)
+				if not base.startswith(options.tmp_prefix):
+					for suffix in suffixes:
+						if len(base) > len(suffix) and base.endswith(suffix):
+							head = base[:-len(suffix)]
+							dtail = base[-len(suffix):]
+							e0 = os.path.join(dirpath_decoded[len(dir) + 1:], sub_dir, head)
+							files.append((e0, dtail))
+							break
+						
+		readable_names = []
 		for d in dirnames:
 			path = os.path.join(dirpath, d)
-			if os.path.islink(path):
+			stat_buf = os.lstat(path)
+#			if os.path.islink(path):
+			if stat.S_ISLNK(stat_buf.st_mode):
 				ex = path[len(dir) + 1:]
 				if options.verbose:
 					print "walk recusive", dir, ex, path
-				walk(dir, ex, files, suffixes, options)
+				walk(dir, ex, files, suffixes, options, read_all_files)
+			elif read_all_files or (stat_buf.st_mode & options.directory_permissions) == options.directory_permissions: 
+				readable_names.append(d)
+		dirnames[:] = readable_names
 	
 def reap(done, ntasks, running, options):
 	assert len(running)
@@ -260,7 +269,7 @@ def main(argv):
 	)
 	link = [ u".mp3" ]
 	
-	parser = optparse.OptionParser(usage="usage: %prog [options] source_dir target_dir")
+	parser = optparse.OptionParser(usage="usage: %prog [--help] [options] source_dir target_dir")
 	parser.set_defaults(check_children=False)
 	parser.disable_interspersed_args()	
 	parser.add_option("-v", "--verbose", action="store_true", help="verbose messages")
@@ -277,6 +286,8 @@ def main(argv):
 	parser.add_option("-t", "--target_dir", default=None, help="target directory")
 	parser.add_option("-s", "--source_dir", default=None, help="source directory")
 	parser.add_option("--ncpus", default = count_cpus(), type='int', help="number of cpus to use [%default]")
+	parser.add_option("--file_permissions", default = 0, type='int', help="files most have at least these permissions [%default]")
+	parser.add_option("--directory_permissions", default = 0, type='int', help="directories most have at least these permissions [%default]")
 	(options, args) = parser.parse_args()
 			
 	if options.ncpus <= 0:
@@ -308,9 +319,9 @@ def main(argv):
 	if options.list:
 		in_files = read_list(input_suffixes)
 	else:
-		in_files = read_files(options.source_dir, input_suffixes, options)
+		in_files = read_files(options.source_dir, input_suffixes, options, False)
 		
-	out_files = read_files(options.target_dir, set([f[1] for f in mapping]), options)
+	out_files = read_files(options.target_dir, set([f[1] for f in mapping]), options, True)
 	
 	if options.verbose:
 		print "using", options.ncpus, "cpus"
