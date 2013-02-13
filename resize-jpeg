@@ -1,0 +1,53 @@
+#!/usr/bin/python
+# resize-jpeg Copyright (c) 2013 Stuart Pook (http://www.pook.it/)
+# resize a jpeg file getting the parameters from the output file
+#
+# This program is free software: you can redistribute it and/or modify it under
+# the terms of the GNU General Public License as published by the Free Software
+# Foundation, either version 3 of the License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+# FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+import os
+import subprocess
+import sys
+import Image
+import string
+import optparse
+
+def main():
+	parser = optparse.OptionParser(usage="usage: %prog [--help] [options] inputfile")
+	parser.add_option("-o", "--output", help="output file name [%default]")
+	parser.add_option("-v", "--verbose", action="store_true", help="verbose")
+	(options, args) = parser.parse_args()
+	if len(args) != 1:
+		parser.error("must supply 1 arguments")
+	inputfile = args[0]
+	if not options.output:
+		parser.error("--output option is compulsory")
+		
+	fields = options.output.split('/')[0].split('-', 1)
+	if len(fields) != 2:
+		return "outfile must start with size-spec-quality"
+		
+	quality = int(fields[1])
+	
+	if string.digits.find(fields[0][0])  == -1:
+		os.symlink(inputfile, options.output)
+	else:
+		size = fields[0].split('x')
+		if len(fields) != 2:
+			return "outfile must start with widthxheight-quality"
+		width = int(size[0])
+		height = int(size[1])
+		im = Image.open(inputfile)
+		im.thumbnail((width, height), Image.ANTIALIAS)
+		im.save(options.output, "JPEG", quality=quality)
+		return 0
+
+if __name__ == "__main__":
+	sys.exit(main())
