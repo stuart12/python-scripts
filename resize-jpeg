@@ -23,6 +23,7 @@ def main():
 	parser = optparse.OptionParser(usage="usage: %prog [--help] [options] inputfile")
 	parser.add_option("-o", "--output", help="output file name [%default]")
 	parser.add_option("-v", "--verbose", action="store_true", help="verbose")
+	parser.add_option("-m", "--size_margin", type='float', default=1.1, help="margin for files almost the same size [%default]")
 	(options, args) = parser.parse_args()
 	if len(args) != 1:
 		parser.error("must supply 1 arguments")
@@ -45,8 +46,11 @@ def main():
 		width = int(size[0])
 		height = int(size[1])
 		im = Image.open(inputfile)
-		im.thumbnail((width, height), Image.ANTIALIAS)
-		im.save(options.output, "JPEG", quality=quality)
+		if im.size[0] <= width and im.size[1] <= height:
+			os.symlink(inputfile, options.output)
+		else:
+			im.thumbnail((width, height), Image.ANTIALIAS)
+			im.save(options.output, "JPEG", quality=quality)
 		return 0
 
 if __name__ == "__main__":
