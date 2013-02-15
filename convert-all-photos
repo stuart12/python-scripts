@@ -38,12 +38,15 @@ def main():
 	if options.ncpus:
 		start.append("--ncpus=%d" % options.ncpus)
 	if options.quiet:
-			start.append("--quiet")
+		start.append("--quiet")
 	if options.dryrun:
-			start.append("--dryrun")
+		start.append("--dryrun")
 	if options.verbose:
 		print(dirs)
 		start.append("--verbose")
+
+	start.append("--file_permissions=040")
+	start.append("--directory_permissions=050")
 			
 	os.nice(options.nice)
 	for d in dirs:

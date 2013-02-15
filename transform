@@ -265,9 +265,10 @@ def main(argv):
 	transform = (
 		(u".cr2", u".jpg", ["cr2-to-jpeg"]),
 		(u".cr2.pp3", u".jpg", ["cr2-to-jpeg"]),
-		(u".flac", u".ogg", ["oggenc", "--quiet", "--quality=5", "-o"])
+		(u".flac", u".ogg", ["oggenc", "--quiet", "--quality=5", "-o"]),
+		(u".jpg", u".jpg", ["resize-jpeg", "--output"])
 	)
-	link = [ u".mp3", u".jpg" ]
+	link = [ u".mp3" ]
 	
 	parser = optparse.OptionParser(usage="usage: %prog [--help] [options] source_dir target_dir")
 	parser.set_defaults(check_children=False)
