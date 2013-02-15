@@ -46,7 +46,7 @@ def main():
 		width = int(size[0])
 		height = int(size[1])
 		im = Image.open(inputfile)
-		if im.size[0] <= width and im.size[1] <= height:
+		if im.size[0] <= width * options.size_margin and im.size[1] <= height * options.size_margin:
 			os.symlink(inputfile, options.output)
 		else:
 			im.thumbnail((width, height), Image.ANTIALIAS)
