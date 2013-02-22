@@ -12,12 +12,35 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+from __future__ import print_function
+
 import os
 import subprocess
 import sys
 import Image
 import string
 import optparse
+import pyexiv2
+
+def copy_exif_data(image, source_path, dest_path, options):
+	source = pyexiv2.Image(source_path)
+	source.readMetadata()
+	dest = pyexiv2.Image(dest_path)
+	dest.readMetadata()
+	for k in source.exifKeys():
+		v = source[k]
+		try:
+			dest[k] = source[k]
+		except ValueError as e:
+			if options.verbose:
+				print("skipping Exif tag", k, v, e.args[0])
+			pass
+#	source.copyMetadataTo(dest)
+# http://stackoverflow.com/questions/400788/resize-image-in-python-without-losing-exif-data
+	dest["Exif.Photo.PixelXDimension"] = image.size[0]
+	dest["Exif.Photo.PixelYDimension"] = image.size[1]
+	dest.writeMetadata()
 
 def main():
 	parser = optparse.OptionParser(usage="usage: %prog [--help] [options] inputfile")
@@ -51,6 +74,7 @@ def main():
 		else:
 			im.thumbnail((width, height), Image.ANTIALIAS)
 			im.save(options.output, "JPEG", quality=quality)
+			copy_exif_data(im, inputfile, options.output, options)
 		return 0
 
 if __name__ == "__main__":
