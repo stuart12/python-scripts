@@ -23,24 +23,36 @@ import string
 import optparse
 import pyexiv2
 
-def copy_exif_data(image, source_path, dest_path, options):
-	source = pyexiv2.Image(source_path)
-	source.readMetadata()
-	dest = pyexiv2.Image(dest_path)
-	dest.readMetadata()
-	for k in source.exifKeys():
-		v = source[k]
-		try:
-			dest[k] = source[k]
-		except ValueError as e:
-			if options.verbose:
-				print("skipping Exif tag", k, v, e.args[0])
-			pass
-#	source.copyMetadataTo(dest)
-# http://stackoverflow.com/questions/400788/resize-image-in-python-without-losing-exif-data
+def update_size(dest, image):
+	# http://stackoverflow.com/questions/400788/resize-image-in-python-without-losing-exif-data
 	dest["Exif.Photo.PixelXDimension"] = image.size[0]
 	dest["Exif.Photo.PixelYDimension"] = image.size[1]
-	dest.writeMetadata()
+
+def copy_exif_data(image, source_path, dest_path, options):
+	if pyexiv2.version_info >= (0, 3, 2):
+		source = pyexiv2.ImageMetadata(source_path)
+		source.read()
+		dest = pyexiv2.ImageMetadata(dest_path)
+		dest.read()
+		source.copy(dest)
+		update_size(dest, image)
+		dest.write()
+	else:
+		source = pyexiv2.Image(source_path)
+		source.readMetadata()
+		dest = pyexiv2.Image(dest_path)
+		dest.readMetadata()
+		for k in source.exifKeys():
+			v = source[k]
+			try:
+				dest[k] = source[k]
+			except ValueError as e:
+				if options.verbose:
+					print("skipping Exif tag", k, v, e.args[0])
+				pass
+		update_size(dest, image)
+	#	source.copyMetadataTo(dest)
+		dest.writeMetadata()
 
 def main():
 	parser = optparse.OptionParser(usage="usage: %prog [--help] [options] inputfile")
