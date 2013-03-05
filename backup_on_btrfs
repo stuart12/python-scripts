@@ -1,6 +1,21 @@
 #!/usr/bin/python3
+# transform Copyright (c) 2013 Stuart Pook (http://www.pook.it/)
+# backup btrfs filesystems on a btrfs filesystem
+#
+# This program is free software: you can redistribute it and/or modify it under
+# the terms of the GNU General Public License as published by the Free Software
+# Foundation, either version 3 of the License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+# FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 import pytz,datetime
+
 datetime.datetime.now(pytz.utc).isoformat()
-sudo btrfs subvolume snapshot -r /disks/music /tmp/stuart2Tb/snapshots/music/2013-03-04T00:33:24.009229+00:00
-Create a readonly snapshot of '/disks/music' in '/tmp/stuart2Tb/snapshots/music/2013-03-04T00:33:24.009229+00:00'
-:; sudo btrfs subvolume snapshot -r /disks/photos /tmp/stuart2Tb/snapshots/photos/2013-03-04T00:34:43.633462+00:00
+#sudo btrfs subvolume snapshot -r /disks/music /tmp/stuart2Tb/snapshots/music/2013-03-04T00:33:24.009229+00:00
+#Create a readonly snapshot of '/disks/music' in '/tmp/stuart2Tb/snapshots/music/2013-03-04T00:33:24.009229+00:00'
+#:; sudo btrfs subvolume snapshot -r /disks/photos /tmp/stuart2Tb/snapshots/photos/2013-03-04T00:34:43.633462+00:00
