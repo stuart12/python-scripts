@@ -2,5 +2,5 @@
 from=2560x2560-94
 #extra=2012-11Cuba
 #extra=2013-01Australia
-exec rsync --copy-unsafe-links --size-only --delete -Pr /disks/ws/converted-photos/$from/$extra nexus7:/mnt/shell/emulated/0/Stuart/photos-sync/
+exec rsync --copy-unsafe-links --size-only --delete-before -Pr /disks/ws/converted-photos/$from/$extra nexus7:/mnt/shell/emulated/0/Stuart/photos-sync/
 

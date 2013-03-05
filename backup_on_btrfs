@@ -1,0 +1,6 @@
+#!/usr/bin/python3
+import pytz,datetime
+datetime.datetime.now(pytz.utc).isoformat()
+sudo btrfs subvolume snapshot -r /disks/music /tmp/stuart2Tb/snapshots/music/2013-03-04T00:33:24.009229+00:00
+Create a readonly snapshot of '/disks/music' in '/tmp/stuart2Tb/snapshots/music/2013-03-04T00:33:24.009229+00:00'
+:; sudo btrfs subvolume snapshot -r /disks/photos /tmp/stuart2Tb/snapshots/photos/2013-03-04T00:34:43.633462+00:00

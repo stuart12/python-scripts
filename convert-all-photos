@@ -34,7 +34,7 @@ def main():
 	os.chdir(options.target_dir)
 	
 	dirs = os.listdir(".")
-	start = ["transform", "--delete"]
+	start = ["transform", "--delete", "--max_filename_characters=64" ]
 	if options.ncpus:
 		start.append("--ncpus=%d" % options.ncpus)
 	if options.quiet:
