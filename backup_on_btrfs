@@ -13,9 +13,52 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-import pytz,datetime
+# http://www.sanitarium.net/golug/rsync+btrfs_backups_2011.html
+# https://github.com/oxplot/rsyncbtrfs
 
-datetime.datetime.now(pytz.utc).isoformat()
+# ? --no-whole-file
+
+import datetime
+import optparse
+import os
+
+#	tag = datetime.datetime.now(pytz.utc).isoformat()
+
 #sudo btrfs subvolume snapshot -r /disks/music /tmp/stuart2Tb/snapshots/music/2013-03-04T00:33:24.009229+00:00
 #Create a readonly snapshot of '/disks/music' in '/tmp/stuart2Tb/snapshots/music/2013-03-04T00:33:24.009229+00:00'
 #:; sudo btrfs subvolume snapshot -r /disks/photos /tmp/stuart2Tb/snapshots/photos/2013-03-04T00:34:43.633462+00:00
+
+def call(cmd, options):
+	print(" ".join(cmd))
+	
+def snapshot(fs, snapshot, options):
+	call(["btrfs", "subvolume", "snapshot", "-r", fs, snapshot ], options)
+
+def btrfs_backup(fs, options):
+	tag = datetime.datetime.utcnow().isoformat()
+	destination = os.path.join(options.snapshots, fs, tag)
+	snapshot("/disks/" + fs, destination, options)
+	call(["rsync", ] + options.rsync +[ destination, os.path.join(options.backups, fs, "current")], options)
+	snapshot(os.path.join(options.backups, fs, "current"), os.path.join(options.backups, fs, tag), options)
+
+def main():	
+	parser = optparse.OptionParser(usage="%prog [--help] [options] filesystem ...")
+	parser.disable_interspersed_args()
+	
+	rsync_opts = ["--archive", "--one-file-system", "--hard-links", "--inplace", "--delete" ]
+	parser.add_option("-v", "--verbose", action="store_true", help="verbose")
+	parser.add_option("-n", "--dryrun", action="store_true", help="do not execute")
+	parser.add_option("--snapshots", default="/tmp/stuart2Tb/snapshots", help="parent directory where to create snapshots")
+	parser.add_option("--backups", default="/data/snapshot_backups", help="parent directory where to rsync")
+	parser.add_option("--rsync", default=rsync_opts, action="append", help="extras rsync option")
+	
+	(options, args) = parser.parse_args()
+	
+	if len(args) == 0:
+		parser.error("at least one filesystem")
+		
+	for fs in args:
+		btrfs_backup(fs, options)
+
+if __name__ == '__main__':
+	main()
