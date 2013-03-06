@@ -28,6 +28,16 @@ import os
 #Create a readonly snapshot of '/disks/music' in '/tmp/stuart2Tb/snapshots/music/2013-03-04T00:33:24.009229+00:00'
 #:; sudo btrfs subvolume snapshot -r /disks/photos /tmp/stuart2Tb/snapshots/photos/2013-03-04T00:34:43.633462+00:00
 
+# init
+#btrfs subvolume create   /disks/backups/snapshot_backups
+
+# init per fs
+# btrfs subvolume create   /disks/backups/snapshot_backups/photos
+# mkdir  -m 700 /disks/backups/snapshot_backups/photos/secret
+# btrfs subvolume create   /disks/backups/snapshot_backups/photos/secret/current
+
+
+
 def call(cmd, options):
 	print(" ".join(cmd))
 	
@@ -35,11 +45,11 @@ def snapshot(fs, snapshot, options):
 	call(["btrfs", "subvolume", "snapshot", "-r", fs, snapshot ], options)
 
 def btrfs_backup(fs, options):
-	tag = datetime.datetime.utcnow().isoformat()
+	tag = datetime.datetime.utcnow().isoformat() + "+00:00"
 	destination = os.path.join(options.snapshots, fs, tag)
 	snapshot("/disks/" + fs, destination, options)
-	call(["rsync", ] + options.rsync +[ destination, os.path.join(options.backups, fs, "current")], options)
-	snapshot(os.path.join(options.backups, fs, "current"), os.path.join(options.backups, fs, tag), options)
+	call(["rsync", ] + options.rsync +[ destination + "/", os.path.join(options.backups, fs, options.secret, options.current) ], options)
+	snapshot(os.path.join(options.backups, fs, options.secret, options.current), os.path.join(options.backups, fs, tag), options)
 
 def main():	
 	parser = optparse.OptionParser(usage="%prog [--help] [options] filesystem ...")
@@ -48,9 +58,11 @@ def main():
 	rsync_opts = ["--archive", "--one-file-system", "--hard-links", "--inplace", "--delete" ]
 	parser.add_option("-v", "--verbose", action="store_true", help="verbose")
 	parser.add_option("-n", "--dryrun", action="store_true", help="do not execute")
-	parser.add_option("--snapshots", default="/tmp/stuart2Tb/snapshots", help="parent directory where to create snapshots")
-	parser.add_option("--backups", default="/data/snapshot_backups", help="parent directory where to rsync")
-	parser.add_option("--rsync", default=rsync_opts, action="append", help="extras rsync option")
+	parser.add_option("--snapshots", default="/disks/data/snapshots", help="parent directory where to create snapshots [%default]")
+	parser.add_option("--backups", default="/disks/backups/snapshot_backups", help="parent directory where to rsync [%default]")
+	parser.add_option("--rsync", default=rsync_opts, action="append", help="extras rsync option [%default]")
+	parser.add_option("--secret", default="secret", help="directory to limit access to current [%default]")
+	parser.add_option("--current", default="current", help="rsync target (dirdirectory of secret) [%default]")
 	
 	(options, args) = parser.parse_args()
 	
