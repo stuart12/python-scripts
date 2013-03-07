@@ -21,6 +21,20 @@
 import datetime
 import optparse
 import os
+import subprocess
+
+def call(cmd, options):
+	if options.verbose or options.dryrun:
+		print(" ".join(cmd))
+	if not options.dryrun:
+		subprocess.check_call(cmd)
+
+def mkdir(dir, options):
+	mode = 0o700
+	if options.verbose or options.dryrun:
+		print("mkdir -m %o %s" % (mode, dir))
+	if not options.dryrun:
+		os.mkdir(dir, mode)
 
 #	tag = datetime.datetime.now(pytz.utc).isoformat()
 
@@ -28,18 +42,21 @@ import os
 #Create a readonly snapshot of '/disks/music' in '/tmp/stuart2Tb/snapshots/music/2013-03-04T00:33:24.009229+00:00'
 #:; sudo btrfs subvolume snapshot -r /disks/photos /tmp/stuart2Tb/snapshots/photos/2013-03-04T00:34:43.633462+00:00
 
-# init
-#btrfs subvolume create   /disks/backups/snapshot_backups
+def btrfs(subcommand, options):
+	call(["btrfs"] + subcommand, options)
 
-# init per fs
-# btrfs subvolume create   /disks/backups/snapshot_backups/photos
-# mkdir  -m 700 /disks/backups/snapshot_backups/photos/secret
-# btrfs subvolume create   /disks/backups/snapshot_backups/photos/secret/current
-
-
-
-def call(cmd, options):
-	print(" ".join(cmd))
+def subvolume(volname, options):
+	btrfs(["subvolume", "create"]  + [volname], options)
+	
+def first(options):
+	subvolume(options.backups, options)
+	
+def initialise(fs, options):
+	top = os.path.join(options.backups, fs)
+	subvolume(os.path.join(options.backups, top), options)
+	secret = os.path.join(top, options.secret)
+	mkdir(secret, options)
+	subvolume(os.path.join(secret, options.current), options)
 	
 def snapshot(fs, snapshot, options):
 	call(["btrfs", "subvolume", "snapshot", "-r", fs, snapshot ], options)
@@ -47,7 +64,7 @@ def snapshot(fs, snapshot, options):
 def btrfs_backup(fs, options):
 	tag = datetime.datetime.utcnow().isoformat() + "+00:00"
 	destination = os.path.join(options.snapshots, fs, tag)
-	snapshot("/disks/" + fs, destination, options)
+	snapshot(os.path.join(options.data, fs), destination, options)
 	call(["rsync", ] + options.rsync +[ destination + "/", os.path.join(options.backups, fs, options.secret, options.current) ], options)
 	snapshot(os.path.join(options.backups, fs, options.secret, options.current), os.path.join(options.backups, fs, tag), options)
 
@@ -56,20 +73,30 @@ def main():
 	parser.disable_interspersed_args()
 	
 	rsync_opts = ["--archive", "--one-file-system", "--hard-links", "--inplace", "--delete" ]
+	parser.add_option("--first", action="store_true", help="make backup directory volume structure")
+	parser.add_option("--initialise", action="store_true", help="make backup directory volume structure for new filesystem")
 	parser.add_option("-v", "--verbose", action="store_true", help="verbose")
-	parser.add_option("-n", "--dryrun", action="store_true", help="do not execute")
+	parser.add_option("-n", "--dryrun", default=False, action="store_true", help="do not execute")
+	parser.add_option("--data", default="/disks", help="volume to snapshot and backup [%default]")
 	parser.add_option("--snapshots", default="/disks/data/snapshots", help="parent directory where to create snapshots [%default]")
-	parser.add_option("--backups", default="/disks/backups/snapshot_backups", help="parent directory where to rsync [%default]")
+	parser.add_option("--backups", default="/disks/backups/snapshot_rsync", help="parent directory where to rsync [%default]")
 	parser.add_option("--rsync", default=rsync_opts, action="append", help="extras rsync option [%default]")
 	parser.add_option("--secret", default="secret", help="directory to limit access to current [%default]")
 	parser.add_option("--current", default="current", help="rsync target (dirdirectory of secret) [%default]")
 	
 	(options, args) = parser.parse_args()
 	
-	if len(args) == 0:
+	if options.initialise and len(args) == 0:
+		parser.error("at least one filesystem")
+	
+	if options.first:
+		first(options)
+	elif len(args) == 0:
 		parser.error("at least one filesystem")
 		
 	for fs in args:
+		if options.initialise:
+			initialise(fs, options)
 		btrfs_backup(fs, options)
 
 if __name__ == '__main__':
