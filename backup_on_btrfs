@@ -78,11 +78,11 @@ def main():
 	parser.add_option("-v", "--verbose", action="store_true", help="verbose")
 	parser.add_option("-n", "--dryrun", default=False, action="store_true", help="do not execute")
 	parser.add_option("--data", default="/disks", help="volume to snapshot and backup [%default]")
-	parser.add_option("--snapshots", default="/disks/data/snapshots", help="parent directory where to create snapshots [%default]")
+	parser.add_option("--snapshots", default="/disks/snapshots", help="parent directory where to create snapshots [%default]")
 	parser.add_option("--backups", default="/disks/backups/snapshot_rsync", help="parent directory where to rsync [%default]")
 	parser.add_option("--rsync", default=rsync_opts, action="append", help="extras rsync option [%default]")
 	parser.add_option("--secret", default="secret", help="directory to limit access to current [%default]")
-	parser.add_option("--current", default="current", help="rsync target (dirdirectory of secret) [%default]")
+	parser.add_option("--current", default="current", help="rsync target (subdirectory of secret) [%default]")
 	
 	(options, args) = parser.parse_args()
 	
