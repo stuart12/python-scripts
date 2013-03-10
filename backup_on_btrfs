@@ -23,11 +23,11 @@ import optparse
 import os
 import subprocess
 
-def call(cmd, options):
+def call(cmd, options, stdout=None):
 	if options.verbose or options.dryrun:
 		print(" ".join(cmd))
 	if not options.dryrun:
-		subprocess.check_call(cmd)
+		subprocess.check_call(cmd, stdout=stdout)
 
 def mkdir(dir, options):
 	mode = 0o700
@@ -43,23 +43,28 @@ def mkdir(dir, options):
 #:; sudo btrfs subvolume snapshot -r /disks/photos /tmp/stuart2Tb/snapshots/photos/2013-03-04T00:34:43.633462+00:00
 
 def btrfs(subcommand, options):
-	call(["btrfs"] + subcommand, options)
+	c = ["btrfs"] + subcommand
+	if options.verbose:
+		call(c, options)
+	else:
+		with open("/dev/null", "w") as null:
+			call(c, options, stdout=null)
 
-def subvolume(volname, options):
+def subvolume_create(volname, options):
 	btrfs(["subvolume", "create"]  + [volname], options)
 	
 def first(options):
-	subvolume(options.backups, options)
+	subvolume_create(options.backups, options)
 	
 def initialise(fs, options):
 	top = os.path.join(options.backups, fs)
-	subvolume(os.path.join(options.backups, top), options)
+	subvolume_create(os.path.join(options.backups, top), options)
 	secret = os.path.join(top, options.secret)
 	mkdir(secret, options)
-	subvolume(os.path.join(secret, options.current), options)
+	subvolume_create(os.path.join(secret, options.current), options)
 	
 def snapshot(fs, snapshot, options):
-	call(["btrfs", "subvolume", "snapshot", "-r", fs, snapshot ], options)
+	btrfs(["subvolume", "snapshot", "-r", fs, snapshot ], options)
 
 def btrfs_backup(fs, options):
 	tag = datetime.datetime.utcnow().isoformat() + "+00:00"
