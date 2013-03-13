@@ -21,6 +21,16 @@
 import datetime
 import optparse
 import os
+import sys
+
+def get_filesystem_type(path, options):
+	device_no = os.stat(path).st_dev
+	with open("/proc/mounts") as mounts:
+		for mount in mounts:
+			fields = mount.split()
+			if len(fields) > 2:
+				if os.stat(fields[1]).st_dev == device_no:
+					return fields[2]
 
 #	tag = datetime.datetime.now(pytz.utc).isoformat()
 
@@ -36,10 +46,26 @@ def snapshot(fs, snapshot, options):
 
 def btrfs_backup(fs, options):
 	tag = datetime.datetime.utcnow().isoformat()
-	destination = os.path.join(options.snapshots, fs, tag)
-	snapshot("/disks/" + fs, destination, options)
-	call(["rsync", ] + options.rsync +[ destination, os.path.join(options.backups, fs, "current")], options)
+	disk = os.path.join("/disks/", fs)
+	snapshot = os.path.join(options.snapshots, fs, tag)
+	if get_filesystem_type(fs, options) == "btrfs":
+		snapshot(disk, snapshot, options)
+		source = snapshot
+	else:
+		source = disk
+	call(["rsync", ] + options.rsync + [ source, os.path.join(options.backups, fs, "current") ], options)
 	snapshot(os.path.join(options.backups, fs, "current"), os.path.join(options.backups, fs, tag), options)
+	
+def backup(source, snapshot, destination):
+	
+def read_config(config_file, options):
+	with open(config_file) as config:
+		for line in config:
+			args = line.split()
+			if len(args) == 3:
+				backup(args[0], args[1], args[2])
+			else:
+				backup(args[0], None, args[1])
 
 def main():	
 	parser = optparse.OptionParser(usage="%prog [--help] [options] filesystem ...")
