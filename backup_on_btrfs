@@ -18,10 +18,36 @@
 
 # ? --no-whole-file
 
+# snapshot,rsync,tar /disks/photos /disks/snapshots/photos photos
+# snapshot,rsync,tar /disks/music /disks/snapshots/music music
+# snapshot /disks/movies /disks/snapshots/movies
+# rsync /home/stuart stuart
+# rsync,tar / root
+# tar /var var
+
 import datetime
 import optparse
 import os
-import sys
+import subprocess
+import tempfile
+import shutil
+#import Crypto.Hash.MD5
+
+def print_call(cmd, options):
+	if options.verbose or options.dryrun:
+		print(" ".join(cmd))
+		
+def call(cmd, options, stdout=None):
+	print_call(cmd, options)
+	if not options.dryrun:
+		subprocess.check_call(cmd, stdout=stdout, close_fds=True)
+
+def mkdir(dir, options):
+	mode = 0o700
+	if options.verbose or options.dryrun:
+		print("mkdir -m %o %s" % (mode, dir))
+	if not options.dryrun:
+		os.mkdir(dir, mode)
 
 def get_filesystem_type(path, options):
 	device_no = os.stat(path).st_dev
@@ -38,53 +64,159 @@ def get_filesystem_type(path, options):
 #Create a readonly snapshot of '/disks/music' in '/tmp/stuart2Tb/snapshots/music/2013-03-04T00:33:24.009229+00:00'
 #:; sudo btrfs subvolume snapshot -r /disks/photos /tmp/stuart2Tb/snapshots/photos/2013-03-04T00:34:43.633462+00:00
 
-def call(cmd, options):
-	print(" ".join(cmd))
+def btrfs(subcommand, options):
+	c = ["btrfs"] + subcommand
+	if options.verbose:
+		call(c, options)
+	else:
+		with open("/dev/null", "w") as null:
+			call(c, options, stdout=null)
+
+def subvolume_create(volname, options):
+	btrfs(["subvolume", "create"]  + [volname], options)
 	
-def snapshot(fs, snapshot, options):
-	call(["btrfs", "subvolume", "snapshot", "-r", fs, snapshot ], options)
+def first(options):
+	subvolume_create(options.backups, options)
+	
+def initialise(fs, options):
+	top = os.path.join(options.backups, fs)
+	subvolume_create(os.path.join(options.backups, top), options)
+	secret = os.path.join(top, options.secret)
+	mkdir(secret, options)
+	subvolume_create(os.path.join(secret, options.current), options)
+	
+def create_snapshot(fs, snapshot, options):
+	btrfs(["subvolume", "snapshot", "-r", fs, snapshot ], options)
+	
+def create_tag(options):
+	return datetime.datetime.utcnow().isoformat() + "+00:00"
+	
+def snapshot_source(fs, tag, options):
+	destination = os.path.join(options.snapshots, fs, tag)
+	create_snapshot(os.path.join(options.data, fs), destination, options)
+	return destination
 
 def btrfs_backup(fs, options):
-	tag = datetime.datetime.utcnow().isoformat()
-	disk = os.path.join("/disks/", fs)
-	snapshot = os.path.join(options.snapshots, fs, tag)
-	if get_filesystem_type(fs, options) == "btrfs":
-		snapshot(disk, snapshot, options)
-		source = snapshot
+	tag = create_tag(options)
+	destination = snapshot_source(fs, tag, options)
+	call(["rsync", ] + options.rsync +[ destination + "/", os.path.join(options.backups, fs, options.secret, options.current) ], options)
+	create_snapshot(os.path.join(options.backups, fs, options.secret, options.current), os.path.join(options.backups, fs, tag), options)
+	
+def copy_with_md5(backup, out, out_name, md5, options):
+	m = Crypto.Hash.MD5.new()
+	
+	while True:
+		block = backup.read(8 * 1024)
+		if not block:
+			break
+		out.write(block)
+		m.update(block)
+		
+	md5.write(m.hexdigest() + " *" + out_name + "\n")
+
+def gtar(fs, base, options):
+	metadata = os.path.join(options.incremental_metadata, fs)
+	cmd = ["tar", "--create", "--directory", fs]
+	if options.tar0:
+		cmd.extend(["--level=0", "--listed-incremental=%s" % metadata])
+		out_tag = 0
 	else:
-		source = disk
-	call(["rsync", ] + options.rsync + [ source, os.path.join(options.backups, fs, "current") ], options)
-	snapshot(os.path.join(options.backups, fs, "current"), os.path.join(options.backups, fs, tag), options)
-	
-def backup(source, snapshot, destination):
-	
-def read_config(config_file, options):
+		out_tag = 1
+		tmp = tempfile.NamedTemporaryFile()
+		with open(metadata) as meta:
+			shutil.copyfileobj(meta, tmp)
+		cmd.append("--listed-incremental=%s" % tmp.name)
+	cmd.append(".")
+	tar = "%s.%d.gtar" % (base, out_tag)
+	with open(tar, "wb") as output:
+		with open(tar + ".md5", "w") as md5:
+			print_call(cmd, options)
+			if not options.dryrun:
+				proc = subprocess.Popen(cmd, stdout=subprocess.PIPE)
+				copy_with_md5(proc.stdout, output, tar, md5, options)
+				if proc.wait():
+					print(os.path.basename(sys.argv[0]) +  ": failed: " + " ".join(cmd), file=sys.stderr)
+					sys.exit(1)
+
+def read_config(config_file, selection, options):
+	selected = frozenset(selection)
 	with open(config_file) as config:
 		for line in config:
+			tag = create_tag(options)
 			args = line.split()
-			if len(args) == 3:
-				backup(args[0], args[1], args[2])
-			else:
-				backup(args[0], None, args[1])
+			if len(selected) == 0 or args[1] in selected:
+				operations = frozenset(args[0].split(","))
+				if options.tar0 or options.tar1:	
+					if "tar" in operations:
+						if "snapshot" in operations:
+							source = os.path.join(args[2], tag)
+							create_snapshot(args[1], source, options)
+						else:
+							source = args[1]
+
+						gtar(source, args[-1], options)
+				else:
+					if "snapshot" in operations:
+						if len(args) < 3:
+							sys.exit("snapshots require at least 3 fields " + str(args))
+						source = os.path.join(args[2], tag)
+						create_snapshot(args[1], source, options)
+					else:
+						source = args[1]
+						
+					if "rsync" in operations:
+						top = os.path.join(options.backups, args[-1])
+						secret = os.path.join(top, options.secret)
+						rsync_dest = os.path.join(secret, options.current)
+						if options.initialise:
+							subvolume_create(top, options)
+							mkdir(secret, options)
+							subvolume_create(rsync_dest, options)
+						call(["rsync"] + options.rsync + [ source + "/", rsync_dest ], options)
+						create_snapshot(rsync_dest, os.path.join(options.backups, args[-1], tag), options)
+
 
 def main():	
 	parser = optparse.OptionParser(usage="%prog [--help] [options] filesystem ...")
 	parser.disable_interspersed_args()
 	
 	rsync_opts = ["--archive", "--one-file-system", "--hard-links", "--inplace", "--delete" ]
+	parser.add_option("--first", action="store_true", help="make backup directory volume structure")
+	parser.add_option("--initialise", action="store_true", help="make backup directory volume structure for new filesystem")
 	parser.add_option("-v", "--verbose", action="store_true", help="verbose")
-	parser.add_option("-n", "--dryrun", action="store_true", help="do not execute")
-	parser.add_option("--snapshots", default="/tmp/stuart2Tb/snapshots", help="parent directory where to create snapshots")
-	parser.add_option("--backups", default="/data/snapshot_backups", help="parent directory where to rsync")
-	parser.add_option("--rsync", default=rsync_opts, action="append", help="extras rsync option")
-	
+	parser.add_option("-n", "--dryrun", default=False, action="store_true", help="do not execute")
+	parser.add_option("--data", default="/disks", help="volume to snapshot and backup [%default]")
+	parser.add_option("--snapshots", default="/disks/snapshots", help="parent directory where to create snapshots [%default]")
+	parser.add_option("--backups", default="/disks/backups/snapshot_rsync", help="parent directory where to rsync [%default]")
+	parser.add_option("--rsync", default=rsync_opts, action="append", help="extras rsync option [%default]")
+	parser.add_option("--secret", default="secret", help="directory to limit access to current [%default]")
+	parser.add_option("--current", default="current", help="rsync target (subdirectory of secret) [%default]")
+	parser.add_option("--tar0", action="store_true", help="perform level 0 backup with tar")
+	parser.add_option("--tar1", action="store_true", help="perform level 1 backup with tar")
+	parser.add_option("--incremental_metadata", default="/var/local/gtar-incrementals", help="tar metadata for incremental backups [%default]")
+	parser.add_option("--config", default="/dev/null", help="file containing a list of filesystems to backup [%default]")
+
 	(options, args) = parser.parse_args()
 	
-	if len(args) == 0:
+	if options.initialise and len(args) == 0:
 		parser.error("at least one filesystem")
 		
-	for fs in args:
-		btrfs_backup(fs, options)
+	if options.first:
+		first(options)
+		
+	if (options.tar0 or options.tar1) and not options.dryrun:
+		import Crypto.Hash.MD5
+		
+	read_config(options.config, args, options)
+	return
+		
+	if options.incremental0 or options.incremental1:
+		gtar(args, options)
+	else:
+		for fs in args:
+			if options.initialise:
+				initialise(fs, options)
+			btrfs_backup(fs, options)
 
 if __name__ == '__main__':
 	main()
