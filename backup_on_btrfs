@@ -18,13 +18,20 @@
 
 # ? --no-whole-file
 
+# snapshot,rsync,tar /disks/photos /disks/snapshots/photos photos
+# snapshot,rsync,tar /disks/music /disks/snapshots/music music
+# snapshot /disks/movies /disks/snapshots/movies
+# rsync /home/stuart stuart
+# rsync,tar / root
+# tar /var var
+
 import datetime
 import optparse
 import os
 import subprocess
 import tempfile
 import shutil
-import Crypto.Hash.MD5
+#import Crypto.Hash.MD5
 
 def print_call(cmd, options):
 	if options.verbose or options.dryrun:
@@ -41,6 +48,15 @@ def mkdir(dir, options):
 		print("mkdir -m %o %s" % (mode, dir))
 	if not options.dryrun:
 		os.mkdir(dir, mode)
+
+def get_filesystem_type(path, options):
+	device_no = os.stat(path).st_dev
+	with open("/proc/mounts") as mounts:
+		for mount in mounts:
+			fields = mount.split()
+			if len(fields) > 2:
+				if os.stat(fields[1]).st_dev == device_no:
+					return fields[2]
 
 #	tag = datetime.datetime.now(pytz.utc).isoformat()
 
@@ -97,34 +113,69 @@ def copy_with_md5(backup, out, out_name, md5, options):
 		m.update(block)
 		
 	md5.write(m.hexdigest() + " *" + out_name + "\n")
-
-def gtar(filesystems, options):
+	
+def gtar(fs, base, options):
 	os.umask(0o22)
-	for fs in filesystems:
-		destination = snapshot_source(fs, create_tag(options), options)
-		metadata = os.path.join(options.incremental_metadata, fs + ".snar")
-		cmd = ["tar", "--create", "--directory", destination, "--no-check-device"]
-		if options.incremental0:
-			level = "0"
-			cmd.extend(["--level", level, "--listed-incremental", metadata])
-		else:
-			level = 1
-			tmp = tempfile.NamedTemporaryFile()
-			with open(metadata, "rb") as meta:
-				shutil.copyfileobj(meta, tmp)
-			cmd.extend(["--listed-incremental", tmp.name])
-		cmd.extend(["."])
-		tar = "%s.%s.gtar" % (fs, level)
+	destination = snapshot_source(fs, create_tag(options), options)
+	metadata = os.path.join(options.incremental_metadata, fs + ".snar")
+	cmd = ["tar", "--create", "--directory", destination, "--no-check-device"]
+	if options.incremental0:
+		level = "0"
+		cmd.extend(["--level", level, "--listed-incremental", metadata])
+	else:
+		level = 1
+		tmp = tempfile.NamedTemporaryFile()
+		with open(metadata, "rb") as meta:
+			shutil.copyfileobj(meta, tmp)
+		cmd.extend(["--listed-incremental", tmp.name])
+	cmd.extend(["."])
+	tar = "%s.%d.gtar" % (base, out_tag)
+	print_call(cmd, options)
+	if not options.dryrun:
 		with open(tar, "wb") as output:
 			with open(tar + ".md5", "w") as md5:
-				print_call(cmd, options)
-				if not options.dryrun:
 					proc = subprocess.Popen(cmd, stdout=subprocess.PIPE)
 					copy_with_md5(proc.stdout, output, tar, md5, options)
 					if proc.wait():
 						print(os.path.basename(sys.argv[0]) +  ": failed: " + " ".join(cmd), file=sys.stderr)
 						sys.exit(1)
-	
+
+def read_config(config_file, selection, options):
+	selected = frozenset(selection)
+	with open(config_file) as config:
+		for line in config:
+			tag = create_tag(options)
+			args = line.split()
+			if len(selected) == 0 or args[1] in selected:
+				operations = frozenset(args[0].split(","))
+				if options.tar0 or options.tar1:	
+					if "tar" in operations:
+						if "snapshot" in operations:
+							source = os.path.join(args[2], tag)
+							create_snapshot(args[1], source, options)
+						else:
+							source = args[1]
+
+						gtar(source, args[-1], options)
+				else:
+					if "snapshot" in operations:
+						if len(args) < 3:
+							sys.exit("snapshots require at least 3 fields " + str(args))
+						source = os.path.join(args[2], tag)
+						create_snapshot(args[1], source, options)
+					else:
+						source = args[1]
+						
+					if "rsync" in operations:
+						top = os.path.join(options.backups, args[-1])
+						secret = os.path.join(top, options.secret)
+						rsync_dest = os.path.join(secret, options.current)
+						if options.initialise:
+							subvolume_create(top, options)
+							mkdir(secret, options)
+							subvolume_create(rsync_dest, options)
+						call(["rsync"] + options.rsync + [ source + "/", rsync_dest ], options)
+						create_snapshot(rsync_dest, os.path.join(options.backups, args[-1], tag), options)
 
 def main():	
 	parser = optparse.OptionParser(usage="%prog [--help] [options] filesystem ...")
@@ -141,9 +192,10 @@ def main():
 	parser.add_option("--rsync", default=rsync_opts, action="append", help="extras rsync option [%default]")
 	parser.add_option("--secret", default="secret", help="directory to limit access to current [%default]")
 	parser.add_option("--current", default="current", help="rsync target (subdirectory of secret) [%default]")
-	parser.add_option("--incremental0", action="store_true", help="perform level 0 backup with gtar")
-	parser.add_option("--incremental1", action="store_true", help="perform level 1 backup with gtar")
-	parser.add_option("--incremental_metadata", default="/var/local/gtar-incrementals", help="gtar metadata for incremental backups [%default]")
+	parser.add_option("--tar0", action="store_true", help="perform level 0 backup with tar")
+	parser.add_option("--tar1", action="store_true", help="perform level 1 backup with tar")
+	parser.add_option("--incremental_metadata", default="/var/local/gtar-incrementals", help="tar metadata for incremental backups [%default]")
+	parser.add_option("--config", default="/dev/null", help="file containing a list of filesystems to backup [%default]")
 
 	(options, args) = parser.parse_args()
 	
@@ -152,8 +204,12 @@ def main():
 		
 	if options.first:
 		first(options)
-	elif len(args) == 0:
-		parser.error("at least one filesystem")
+		
+	if (options.tar0 or options.tar1) and not options.dryrun:
+		import Crypto.Hash.MD5
+		
+	read_config(options.config, args, options)
+	return
 		
 	if options.incremental0 or options.incremental1:
 		gtar(args, options)

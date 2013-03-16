@@ -10,6 +10,7 @@
 # or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
 # for more details.  You should have received a copy of the GNU General Public
 # License along with this program.  If not, see <http://www.gnu.org/licenses/>.
+from __future__ import print_function
 
 # Written for Amarok 2.5 & VLC 2 which implement MPRIS 2.1
 
@@ -21,6 +22,10 @@
 # https://www.ibm.com/developerworks/linux/library/l-dbus/index.html
 # http://www.riverbankcomputing.com/pipermail/pyqt/2008-March/018811.html
 # http://www.zetcode.com/tutorials/pyqt4/widgets/
+
+# http://www.rkblog.rk.edu.pl/w/p/qtimer-making-timers-pyqt4/
+# http://www.riverbankcomputing.com/pipermail/pyqt/2010-September/027754.html
+# http://qt-project.org/doc/qt-4.8/qtimer.html
 
 import sys, datetime, time, os, socket
 import dbus
@@ -141,11 +146,11 @@ class Example(QtGui.QWidget):
 		self.show_text(metadata.get("artist", ""), title, metadata.get("album", ""), info)
 	
 	def track_change(self, metadata):
-		print timestamp(), "track_change", metadata.get("title", str(len(metadata)))
+		print(timestamp(), "track_change", metadata.get("title", str(len(metadata))))
 		self.track(metadata)
 		
 	def status_change(self, status):
-		print timestamp(), "status_change", str(status)
+		print(timestamp(), "status_change", str(status))
 		if len(status) < 1:
 			self.show_text("", "amarok", "empty status")
 		elif status[0] == 0:
@@ -164,18 +169,18 @@ class Example(QtGui.QWidget):
 #		self.line1.setText(kargs[2])
 		
 	def my_func(self, account, sender, message, conversation, flags):
-		print timestamp(), sender, "said:", message
+		print(timestamp(), sender, "said:", message)
 		self.line1.setText(sender)
 		self.line2.setText(message)
 		self.line3.setText(str(account) + " " + str(conversation) + " " + str(flags))
 		
 	def signal_print(self, *all):
-		print timestamp(), "signal_print", all
+		print(timestamp(), "signal_print", all)
 
 	def properties_changed(self, who, dict, signature):
-		print timestamp(), "properties_changed", who, dict
+		print(timestamp(), "properties_changed", who, dict)
 		for i in dict:
-			print "     ", i, dict[i]
+			print("     ", i, dict[i])
 		metadata = dict.get('Metadata', None)
 		if metadata:
 			title = metadata.get("xesam:title", "")
@@ -184,7 +189,7 @@ class Example(QtGui.QWidget):
 				try:
 					artist = xartist[0].encode('latin-1', 'xmlcharrefreplace')
 				except UnicodeEncodeError as e:
-					print timestamp(), e
+					print(timestamp(), e)
 					artist = str(e)
 			else:
 				artist = xartist
@@ -219,14 +224,14 @@ def main():
 		machine = "freerunner"
 	else:
 		machine = sys.argv[1]
-	print timestamp(), "initialising", machine
+	print(timestamp(), "initialising", machine)
 	my_address = get_my_address_for_connection(machine)
 	subprocess.check_call(["ssh", "-nax", machine, "env", "DISPLAY=:0", "xhost", my_address, "&&", 
 	                       "python", "-c", "'import dbus;dbus.Interface(dbus.SystemBus().get_object(\"org.freesmartphone.odeviced\", \"/org/freesmartphone/Device/Display/0\"), dbus_interface=\"org.freesmartphone.Device.Display\").SetBrightness(100)'"])
 	display = machine + ":0"
 	subprocess.check_call(["xrandr",  "-display", display, "--orientation", "right"])
 	subprocess.check_call(["xset",  "-display", display, "-dpms"])
-	print timestamp(), "initialising Qt on", display, "from", my_address
+	print(timestamp(), "initialising Qt on", display, "from", my_address)
 	extraargs = sys.argv + ["-display", display]
 	os.environ["DISPLAY"] = display # I don't know why this is necessary
 	app = QtGui.QApplication(extraargs)
@@ -238,7 +243,7 @@ def main():
 #	bus.add_signal_receiver(ex.status_change, dbus_interface="org.freedesktop.MediaPlayer", signal_name="StatusChange")
 #	bus.add_signal_receiver(ex.track_change, dbus_interface="org.freedesktop.MediaPlayer",signal_name="TrackChange" )
 	bus.add_signal_receiver(ex.properties_changed, dbus_interface="org.freedesktop.DBus.Properties",signal_name="PropertiesChanged" )
-	print timestamp(), "starting"
+	print(timestamp(), "starting")
 	sys.exit(app.exec_())
 
 if __name__ == '__main__':
