@@ -99,21 +99,22 @@ def copy_with_md5(backup, out, out_name, md5, options):
 	md5.write(m.hexdigest() + " *" + out_name + "\n")
 
 def gtar(filesystems, options):
+	os.umask(0o22)
 	for fs in filesystems:
 		destination = snapshot_source(fs, create_tag(options), options)
-		metadata = os.path.join(options.incremental_metadata, fs)
-		cmd = ["tar", "--create", "--directory", destination]
+		metadata = os.path.join(options.incremental_metadata, fs + ".snar")
+		cmd = ["tar", "--create", "--directory", destination, "--no-check-device"]
 		if options.incremental0:
-			cmd.extend(["--level=0", "--listed-incremental=%s" % metadata])
-			out_tag = 0
+			level = "0"
+			cmd.extend(["--level", level, "--listed-incremental", metadata])
 		else:
-			out_tag = 1
+			level = 1
 			tmp = tempfile.NamedTemporaryFile()
-			with open(metadata) as meta:
+			with open(metadata, "rb") as meta:
 				shutil.copyfileobj(meta, tmp)
-			cmd.append("--listed-incremental=%s" % tmp.name)
-		cmd.append(".")
-		tar = "%s.%d.gtar" % (fs, out_tag)
+			cmd.extend(["--listed-incremental", tmp.name])
+		cmd.extend(["."])
+		tar = "%s.%s.gtar" % (fs, level)
 		with open(tar, "wb") as output:
 			with open(tar + ".md5", "w") as md5:
 				print_call(cmd, options)
