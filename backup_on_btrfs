@@ -143,39 +143,41 @@ def gtar(fs, base, options):
 def read_config(config_file, selection, options):
 	selected = frozenset(selection)
 	with open(config_file) as config:
-		for line in config:
-			tag = create_tag(options)
-			args = line.split()
-			if len(selected) == 0 or args[1] in selected:
-				operations = frozenset(args[0].split(","))
-				if options.tar0 or options.tar1:	
-					if "tar" in operations:
+		for rline in config:
+			line = rline.strip()
+			if line and line[0] != '#':
+				tag = create_tag(options)
+				args = line.split()
+				if len(selected) == 0 or args[1] in selected:
+					operations = frozenset(args[0].split(","))
+					if options.tar0 or options.tar1:	
+						if "tar" in operations:
+							if "snapshot" in operations:
+								source = os.path.join(args[2], tag)
+								create_snapshot(args[1], source, options)
+							else:
+								source = args[1]
+
+							gtar(source, args[-1], options)
+					else:
 						if "snapshot" in operations:
+							if len(args) < 3:
+								sys.exit("snapshots require at least 3 fields " + str(args))
 							source = os.path.join(args[2], tag)
 							create_snapshot(args[1], source, options)
 						else:
 							source = args[1]
-
-						gtar(source, args[-1], options)
-				else:
-					if "snapshot" in operations:
-						if len(args) < 3:
-							sys.exit("snapshots require at least 3 fields " + str(args))
-						source = os.path.join(args[2], tag)
-						create_snapshot(args[1], source, options)
-					else:
-						source = args[1]
-						
-					if "rsync" in operations:
-						top = os.path.join(options.backups, args[-1])
-						secret = os.path.join(top, options.secret)
-						rsync_dest = os.path.join(secret, options.current)
-						if options.initialise:
-							subvolume_create(top, options)
-							mkdir(secret, options)
-							subvolume_create(rsync_dest, options)
-						call(["rsync"] + options.rsync + [ source + "/", rsync_dest ], options)
-						create_snapshot(rsync_dest, os.path.join(options.backups, args[-1], tag), options)
+							
+						if "rsync" in operations:
+							top = os.path.join(options.backups, args[-1])
+							secret = os.path.join(top, options.secret)
+							rsync_dest = os.path.join(secret, options.current)
+							if options.first or options.initialise:
+								subvolume_create(top, options)
+								mkdir(secret, options)
+								subvolume_create(rsync_dest, options)
+							call(["rsync"] + options.rsync + [ source + "/", rsync_dest ], options)
+							create_snapshot(rsync_dest, os.path.join(options.backups, args[-1], tag), options)
 
 def main():	
 	parser = optparse.OptionParser(usage="%prog [--help] [options] filesystem ...")
