@@ -141,14 +141,16 @@ def snapshot_dump(device, keyfile, gpg):
 	if job.is_child():
 		run(["lvcreate", "--size", "128M", "--snapshot", "--name", snapshot_tag, device])
 		open = False
+		cryptsetup_opts = ["--non-exclusive", "--readonly"]
+		cryptsetup_opts = ["--readonly"]
 		try:
 			if keyfile[0] == '!':
 				key = getoutput(["/bin/sh", "-c", keyfile[1:]])
-				run_input(["cryptsetup", "luksOpen", snapshot, unlocked_tag, "--non-exclusive", "--readonly", "--key-file=-"], key)
+				run_input(["cryptsetup", "luksOpen", snapshot, unlocked_tag, "--key-file=-"] + cryptsetup_opts, key)
 				open = True
 				key.close()
 			else:
-				run(["cryptsetup", "luksOpen", snapshot, unlocked_tag, "--non-exclusive", "--readonly", "--key-file", keyfile])
+				run(["cryptsetup", "luksOpen", snapshot, unlocked_tag, "--key-file", keyfile] + cryptsetup_opts)
 				open = True
 			job.dump()
 		finally:
