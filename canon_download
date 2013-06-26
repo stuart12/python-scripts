@@ -96,6 +96,8 @@ def download(jobs, camera, options):
 				os.rename(tmp, dest)
 				
 def run(options, args):
+	if len(args) > 0:
+		os.chdir(args[0])
 	seen = frozenset(read_record(options))
 	try:
 		os.mkdir(options.destination)
