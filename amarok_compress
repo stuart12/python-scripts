@@ -12,9 +12,13 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 import subprocess, sys, os
+import tempfile 
 
 class MyError(Exception):
 	pass
+	
+def nice():
+	os.nice(10)
 
 def main():
 #	parser = optparse.OptionParser()
@@ -26,28 +30,20 @@ def main():
 
 	root = "/disks/shared/music"
 	c1 = ["amarok_extract", "--strip", "." + root + "/"]
-	p1 = subprocess.Popen(c1, stdout=subprocess.PIPE)
+	file_list = tempfile.TemporaryFile()
+	subprocess.check_call(c1, stdout=file_list)
+		
+	file_list.seek(0)
 	
-	os.nice(10)
-	c2 = [ "transform", "--delete", "--list" ]
+	c2 = [ "transform", "--max_filename_characters=63", "--delete", "--list" ]
 #	if options.verbose:
 #		c2.append("--verbose")
 		
 	c2.extend(sys.argv[1:])
 	c2.append(root)
-	c2.append("/disks/shared/tmp/compressed_music")
+	c2.append("/disks/ws/stuart/compressed_music")
 	
-	p2 = subprocess.Popen(c2, stdin=p1.stdout)
-	
-	p1.stdout.close()  # Allow p1 to receive a SIGPIPE if p2 exits.
-	
-	p1.wait()
-	p2.wait()
-	if p1.returncode  != 0:
-		raise MyError(c1[0] + " failed")
-	if p2.returncode  != 0:
-		raise MyError(c2[0] + " failed")
-		
+	subprocess.check_call(c2, stdin=file_list, preexec_fn=nice)
+
 if __name__ == "__main__":
 	main()
-	
