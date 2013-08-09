@@ -183,7 +183,7 @@ def read_mtab(fs):
 	return fs_real_special, fs_fake_special
 
 def remount(fs, special, flag):
-	run(['mount', '-o', 'remount,' + flag, special, fs])
+	run(['mount', '-o', 'remount,' + flag, fs])
 
 def remount_dump(fs, gpg):
 	fs_real_special, fs_fake_special = read_mtab(fs)
