@@ -341,6 +341,11 @@ def do_backup(ftp_connection_manager, section_name,	config, gpg_command, options
 	226-
 	226 Vous pouvez a tout moment supprimer ce fichier via: http://dl.free.fr/rm.pl?h=test-url&i=25546302&s=L9ZXaFeTKLPKR7eB9Ygq2OJG4uqSBiow"""
 	
+	if not config.getboolean(section_name, "active", fallback="1"):
+		if options.verbose:
+			print("skipping", section_name, "as it is flagged as inactive")
+		return
+	
 	gpgkey = get_value(config, section_name, "GpgKey", options)
 	gpg = gpg_command + [gpgkey]
 	logname = get_value(config, section_name, "log", options)
