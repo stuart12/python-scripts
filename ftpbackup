@@ -1,5 +1,6 @@
 #!/usr/bin/python3
-# ftpbackup, backup filesystems to dl.free.fr, Copyright (C) 2012, 2013 Stuart Pook
+# dlfreebackup, backup filesystems to dl.free.fr using ftp
+# Copyright (C) 2012, 2013 Stuart Pook (http://www.pook.it)
 # This program is free software: you can redistribute it and/or modify it under
 # the terms of the GNU General Public License as published by the Free Software
 # Foundation, either version 3 of the License, or (at your option) any later
@@ -16,22 +17,24 @@ import tempfile
 import subprocess
 import hashlib
 import datetime
-import shutil
 import ftplib
 import time
-import optparse, errno
+import optparse
+import errno
 import configparser
+import string
+import pipes
 
 # time.strftime('%Y-%m-%dT%H:%M:%S%z')
 
 def label():
 	with open("/dev/urandom", "rb") as random:
 		r = ord(random.read(1))
-		label = chr((r & 0xf) + ord('a'))
-		for i in range(0, (r >> 4) % 8):
+		label = string.ascii_letters[r & 0x1f]
+		for i in range(0, r >> 5):
 			r = ord(random.read(1))
-			label += chr((r & 0xf) + ord('A'))
-			label += chr((r >> 4) + ord('a'))
+			label += string.ascii_uppercase[r & 0xf]
+			label += string.ascii_lowercase[r >> 4]
 	return label
 
 def check(message):
@@ -54,10 +57,13 @@ def getoutput(args, options):
 def run(args, options):
 	with open(options.devnull) as devnull:
 		run_input(args, devnull, options)
+		
+def print_cmd(cmd, options):
+	if options.verbose:
+		print(" ".join(pipes.quote(c) for c in cmd))
 
 def run_input(args, input, options):
-	if options.verbose:
-		print(args)
+	print_cmd(args, options)
 	err = tempfile.TemporaryFile()
 	status = subprocess.Popen(args, stdin=input, stdout=err, stderr=subprocess.STDOUT, close_fds=True).wait()
 	if status != 0:
@@ -70,11 +76,11 @@ def make_dump_command(device):
 	return ('dump', "-0", '-L', label(), '-f', '-', '-I', '1', '-q', device)
 
 class Waiter:
-	def __init__(self,  gpg,  device, options):
+	def __init__(self,  gpg,  dump_command, options):
 		self.options = options
 		self.dump_stderr = tempfile.TemporaryFile()
-		self.dump_command = make_dump_command(device)
-		if options.verbose: print(gpg)
+		self.dump_command = dump_command
+		print_cmd(gpg, options)
 		self.crypter = subprocess.Popen(gpg, close_fds = True, stdin = subprocess.PIPE, stdout = subprocess.PIPE, stderr = subprocess.PIPE)
 		self.pid = os.fork()
 		if self.pid == 0:
@@ -85,11 +91,11 @@ class Waiter:
 		return self.pid == 0;
 	def dump(self):
 		self.child("dump")
-		if self.options.verbose: print(self.dump_command) 
+		print_cmd(self.dump_command, self.options) 
 		self.dumper = subprocess.Popen(self.dump_command, close_fds = True, stdout = self.crypter.stdin, stderr = self.dump_stderr)
 		self.crypter.stdin.close()
 		self.dumper.wait()
-		if self.options.verbose: print("dump done",  self.dumper.returncode)
+#		if self.options.verbose: print("dump done",  self.dumper.returncode)
 	def child_exit(self):
 		self.child("child_exit")
 		os._exit(self.dumper.returncode)
@@ -128,7 +134,7 @@ def snapshot_dump(device, keyfile, gpg, options):
 		run(["cryptsetup", "luksClose", unlocked_tag], options)
 	if os.path.exists(snapshot):
 		run(["lvremove", "--force", snapshot], options)
-	job = Waiter(gpg,  unlocked, options)
+	job = Waiter(gpg,  make_dump_command(unlocked), options)
 	if job.is_child():
 		run(["lvcreate", "--size", "128M", "--snapshot", "--name", snapshot_tag, device], options)
 		open = False
@@ -181,12 +187,37 @@ def remount_dump(fs, gpg, options):
 		print("remount_dump of", "device=", fs)
 	fs_real_special, fs_fake_special = read_mtab(fs)
 	remount(fs, fs_fake_special, "ro", options)
-	job = Waiter(gpg,  fs_real_special, options)
+	job = Waiter(gpg,  make_dump_command(fs_real_special), options)
 	if job.is_child():
 		try:
 			job.dump()
 		finally:
 			remount(fs, fs_fake_special, "rw", options)
+		job.child_exit()
+	return job
+
+def latest_backup(config, section_name, gpg, options):
+	directory = get_value(config, section_name, "directory", options)
+	tar_options = config.get(section_name, "TarOptions", fallback="")
+	min_name_len = config.getint(section_name, "MinimumSnapshotNameLength", fallback=20)
+	if options.verbose:
+		print("latest_backup of", directory)
+
+	latest = None
+	for d in os.listdir(directory):
+		if len(d) >= min_name_len and (not latest or d > latest):
+			latest = d
+	if not latest:
+		sys.exit(options.myname + ": no snapshots found in " + directory)
+	
+	snapshot = os.path.join(directory, latest)
+	cmd = ["tar", "--directory", snapshot, "--create", "--one-file-system", "--label", latest]
+	cmd.extend(tar_options.split())
+	cmd.append(".")
+		
+	job = Waiter(gpg, cmd, options)
+	if job.is_child():
+		job.dump()
 		job.child_exit()
 	return job
 
@@ -362,6 +393,8 @@ def do_backup(ftp_connection_manager, section_name,	config, gpg_command, options
 		job = remount_dump(get_value(config, section_name, "filesystem", options), gpg, options)
 	elif type == "crypt":
 		job = snapshot_dump(get_value(config, section_name, "device", options), get_value(config, section_name, "key", options), gpg, options)
+	elif type == "latest":
+		job = latest_backup(config, section_name, gpg, options)
 	else:
 		sys.exit(options.myname + ": bad type " + type)
 	name = section_name + datetime.datetime.now().strftime("-%F")
@@ -381,7 +414,7 @@ def do_backup(ftp_connection_manager, section_name,	config, gpg_command, options
 	if options.verbose:
 		print("\n",  message)
 	job.ftp_done()
-	if options.verbose: print(section_name,  "done")
+	if options.verbose: print(section_name,  "done.")
 
 def main():
 	parser = optparse.OptionParser(usage="%prog [options] [--help] [<section> ...]")
@@ -398,7 +431,6 @@ def main():
 	parser.add_option("-C", "--config", default="/etc/local/dlfreebackup.conf", help="config file root [%default]")
 	parser.add_option("--config_dir_suffix", default=".d", help="suffix for directory of config files [%default]")
 	parser.add_option("--config_dir_contents_suffix", default=".conf", help="suffix for each file in directory of config files [%default]")
-
 	(options, args) = parser.parse_args()
 	
 	config = read_config(options)
