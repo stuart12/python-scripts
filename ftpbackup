@@ -1,5 +1,5 @@
-#!/usr/bin/python
-# ftpbackup, backup filesystems to dl.free.fr, Copyright (C) 2012 Stuart Pook
+#!/usr/bin/python3
+# ftpbackup, backup filesystems to dl.free.fr, Copyright (C) 2012, 2013 Stuart Pook
 # This program is free software: you can redistribute it and/or modify it under
 # the terms of the GNU General Public License as published by the Free Software
 # Foundation, either version 3 of the License, or (at your option) any later
@@ -39,14 +39,13 @@ parser.add_option("-w", "--write", action="store_true",
 devnull = open("/dev/null", "r+")
 
 def label():
-	random = open("/dev/urandom")
-	r = ord(random.read(1))
-	label = chr((r & 0xf) + ord('a'))
-	for i in range(0, (r >> 4) % 8):
+	with open("/dev/urandom", "rb") as random:
 		r = ord(random.read(1))
-		label += chr((r & 0xf) + ord('A'))
-		label += chr((r >> 4) + ord('a'))
-	random.close()
+		label = chr((r & 0xf) + ord('a'))
+		for i in range(0, (r >> 4) % 8):
+			r = ord(random.read(1))
+			label += chr((r & 0xf) + ord('A'))
+			label += chr((r >> 4) + ord('a'))
 	return label
 
 def check(message):
@@ -70,7 +69,7 @@ def run(args):
 
 def run_input(args, input):
 	if options.verbose:
-		print args
+		print(args)
 	err = tempfile.TemporaryFile()
 	status = subprocess.Popen(args, stdin=input, stdout=err, stderr=subprocess.STDOUT, close_fds=True).wait()
 	if status != 0:
@@ -86,7 +85,7 @@ class Waiter:
 	def __init__(self,  gpg,  device):
 		self.dump_stderr = tempfile.TemporaryFile()
 		self.dump_command = make_dump_command(device)
-		if options.verbose: print gpg
+		if options.verbose: print(gpg)
 		self.crypter = subprocess.Popen(gpg, close_fds = True, stdin = subprocess.PIPE, stdout = subprocess.PIPE, stderr = subprocess.PIPE)
 		self.pid = os.fork()
 		if self.pid == 0:
@@ -97,11 +96,11 @@ class Waiter:
 		return self.pid == 0;
 	def dump(self):
 		self.child("dump")
-		if options.verbose: print self.dump_command 
+		if options.verbose: print(self.dump_command) 
 		self.dumper = subprocess.Popen(self.dump_command, close_fds = True, stdout = self.crypter.stdin, stderr = self.dump_stderr)
 		self.crypter.stdin.close()
 		self.dumper.wait()
-		if options.verbose: print "dump done",  self.dumper.returncode
+		if options.verbose: print("dump done",  self.dumper.returncode)
 	def child_exit(self):
 		self.child("child_exit")
 		os._exit(self.dumper.returncode)
@@ -123,9 +122,9 @@ class Waiter:
 		self.parent("crypt_output")
 		return self.crypter.stdout
 	def parent(self,  what):
-		if self.pid == 0: print >> sys.stderr,  "should only call " + what + " in parent"
+		if self.pid == 0: print("should only call " + what + " in parent", file=sys.stderr)
 	def child(self,  what):
-		if self.pid != 0: print >> sys.stderr,  "should only call " + what + " in child"
+		if self.pid != 0: print("should only call " + what + " in child", file=sys.stderr)
 		
 def snapshot_dump(device, keyfile, gpg):
 	fs = os.path.basename(device)
@@ -208,7 +207,7 @@ class MD5:
 		self.dumpmd5.update(buf)
 		self.bytes += len(buf)
 		if self.verbose:
-			print "just wrote",  len(buf),  "bytes, total",  "%.0f KiB    \r" % (self.bytes / 1024), 
+			print("just wrote",  len(buf),  "bytes, total",  "%.0f KiB    \r" % (self.bytes / 1024), end=' ') 
 			sys.stdout.flush()
 	def size(self):
 		return self.bytes
@@ -216,10 +215,10 @@ class MD5:
 def skip(file,  md5):
 	while True:
 		b = file.read(8192)
-		if b == "":
+		if not b:
 			break
 		md5(b)
-		
+
 def find_eol(response,  start):
 	end0 = response.find('\n',  start)
 	end1 = response.find('\r',  start)
@@ -279,15 +278,15 @@ for a in args:
 		log = open(logname, "a")
 	ftphost, ftpuser, ftppasswd = cfg.readline().split()
 	if options.verbose:
-		print "gpgkey=", gpgkey, "logname=", logname, "ftphost=", ftphost, "ftpuser=", ftpuser
+		print("gpgkey=", gpgkey, "logname=", logname, "ftphost=", ftphost, "ftpuser=", ftpuser)
 	tries = 0
 	while options.ftp:
 		try:
 			ftpconnection = ftplib.FTP(ftphost, ftpuser, ftppasswd)             
-		except EOFError, e:
-			if options.verbose: print "EOFError", e
+		except EOFError as e:
+			if options.verbose: print("EOFError", e)
 		else:
-			if options.verbose: print "connection to", ftphost, "open after " + str(tries) + " failures"
+			if options.verbose: print("connection to", ftphost, "open after " + str(tries) + " failures")
 			break
 		tries = tries + 1
 		if tries > 60:
@@ -303,14 +302,14 @@ for a in args:
 		dow, type,  device, key = l.rstrip().split(None, 3)
 		if type == "remount":
 			if options.verbose:
-				print "remount_dump of", "device=", device
+				print("remount_dump of", "device=", device)
 			job = remount_dump(device, gpg)
 		elif type == "crypt":
 			if options.verbose:
-				print "snapshot_dump of", "device=", device, "key=", key
+				print("snapshot_dump of", "device=", device, "key=", key)
 			job = snapshot_dump(device, key, gpg)
 		else:
-			print  >> sys.stderr,  "bad type",  type
+			print("bad type",  type, file=sys.stderr)
 		fs = os.path.basename(device).split('-')[-1]
 		name = fs + datetime.datetime.now().strftime("-%F")
 		start = time.time()
@@ -326,9 +325,9 @@ for a in args:
 		if options.ftp:
 			log.write(message + "\n")
 		if options.verbose:
-			print "\n",  message
+			print("\n",  message)
 		job.ftp_done()
-		if options.verbose: print device,  "done"
+		if options.verbose: print(device,  "done")
 		
 	if options.ftp:
 		ftpconnection.quit()
