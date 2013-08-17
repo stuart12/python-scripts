@@ -20,6 +20,7 @@ import shutil
 import ftplib
 import time
 import optparse, errno
+import configparser
 
 # time.strftime('%Y-%m-%dT%H:%M:%S%z')
 
@@ -236,15 +237,13 @@ def get_url_from_response(remote_file,  response):
 	if end == -1:
 		check("could not find the end of the url for " + remote_file)
 	if end == start:
-		check("curl for " + remote_file + " is empty")
+		check("url for " + remote_file + " is empty")
 	return response[start + len(leadin): end]
 	
 def gpg_option_for_readonly_home(options):
 	trustdb = os.path.expanduser("~/.gnupg/trustdb.gpg")
 	try:
 		fd = os.open(trustdb, os.O_WRONLY)
-		os.close(fd)
-		return []
 	except OSError as e:
 		if e.errno != errno.EROFS:
 			raise
@@ -252,6 +251,9 @@ def gpg_option_for_readonly_home(options):
 		if options.verbose:
 			print("detected that " + trustdb + " is on a readonly filesystem")
 		return ["--lock-never", "--quiet", "--no-random-seed-file"]
+	else:
+		os.close(fd)
+		return []
 	# http://lists.gnupg.org/pipermail/gnupg-users/2006-September/029339.html
 	# http://www.gossamer-threads.com/lists/gnupg/users/54764
 	
@@ -272,8 +274,63 @@ def open_ftp_connection(ftphost, ftpuser, ftppasswd, options):
 			sys.exit(options.myname + ": " + str(tries) + " connections to " + ftphost + " failed")
 		time.sleep(20)
 	return ftpconnection
+	
+def read_config(options):
+	config = configparser.ConfigParser()
+	with open(options.config) as f:
+		config.read_file(f)
+	dir = options.config + options.config_dir_suffix
+	if options.config_dir_suffix:
+		try:
+			dirs = os.listdir(dir)
+		except OSError as e:
+			if e.errno != errno.ENOENT:
+				raise
+		else:
+			for f in dirs:
+				if f.endswith(options.config_dir_contents_suffix):
+					c = os.path.join(dir, f)
+					if options.verbose:
+						print("additional config from", c)
+					with open(c) as f:
+						config.read_file(f)
+	return config
 
-def main():
+class FtpConnectionManager:
+	def __init__(self,  options):
+		self.host = None
+		self.user = None
+		self.passwd = None
+		self.connection = None
+		self.options = options
+	def __enter__(self):
+		return self
+	def __call__(self, buf):
+		self.dumpmd5.update(buf)
+		self.bytes += len(buf)
+		if self.options.veryverbose:
+			print("just wrote",  len(buf),  "bytes, total",  "%.0f KiB    \r" % (self.bytes / 1024), end=' ') 
+			sys.stdout.flush()
+	def get(self, host, user, passwd):
+		if self.host != host or self.user != user or self.passwd != passwd or not self.connection:
+			self.host = host
+			self.user = user
+			self.passwd = passwd
+			if self.connection:
+				self.connection.quit()
+			self.connection = open_ftp_connection(host, user, passwd, self.options)
+		return self.connection
+	def __exit__(self, exc_type, exc_value, traceback):
+		if self.connection:
+			self.connection.quit()
+			
+def get_value(config, section, key, options):
+	r = config.get(section, key)
+	if not r:
+		sys.exit(options.myname + ": missing value for option " + option + " in section " + section)
+	return r
+
+def do_backup(ftp_connection_manager, section_name,	config, gpg_command, options):
 	dummy_reponse0 = """226-Fichier transfere sans probleme
 	226-Traitements en cours....
 	226-
@@ -283,13 +340,49 @@ def main():
 	226-Il est disponible via http://dl.free.fr/test-url
 	226-
 	226 Vous pouvez a tout moment supprimer ce fichier via: http://dl.free.fr/rm.pl?h=test-url&i=25546302&s=L9ZXaFeTKLPKR7eB9Ygq2OJG4uqSBiow"""
+	
+	gpgkey = get_value(config, section_name, "GpgKey", options)
+	gpg = gpg_command + [gpgkey]
+	logname = get_value(config, section_name, "log", options)
+	ftphost = get_value(config, section_name, "FtpSite", options)
+	ftpuser = get_value(config, section_name, "FtpUser", options)
+	ftppasswd = get_value(config, section_name, "FtpPassword", options)
+	if options.verbose:
+		print("section", section_name,"gpgkey=", gpgkey, "logname=", logname, "ftphost=", ftphost, "ftpuser=", ftpuser)
+	ftpconnection = ftp_connection_manager.get(ftphost, ftpuser, ftppasswd)
+	md5 = MD5(options)
+	# dow type device key
+	type = get_value(config, section_name, "type", options)
+	if type == "remount":
+		job = remount_dump(get_value(config, section_name, "filesystem", options), gpg, options)
+	elif type == "crypt":
+		job = snapshot_dump(get_value(config, section_name, "device", options), get_value(config, section_name, "key", options), gpg, options)
+	else:
+		sys.exit(options.myname + ": bad type " + type)
+	name = section_name + datetime.datetime.now().strftime("-%F")
+	start = time.time()
+	if options.ftp:
+		r = ftpconnection.storbinary("STOR " + name, job.crypt_output(),  8192,  md5)
+	else:
+		skip(job.crypt_output(),  md5)
+		r = dummy_reponse0 + name + dummy_reponse1
+	url = get_url_from_response(name,  r)
+	seconds = time.time() - start
+	timestamp = datetime.datetime.fromtimestamp(start).strftime("%Y-%m-%d %H:%M:%S")
+	message = "%s %s %s %s %d bytes %.0f MiB %.0fs %.0f kbit/s %.0f minutes" % (timestamp, name, url,  md5.digest(), md5.size(),  md5.size() / 1024 / 1024,  seconds, md5.size() * 8 / seconds / 1024.0,  seconds / 60)
+	if options.ftp:
+		with open(logname, "a") as log:
+			log.write(message + "\n")
+	if options.verbose:
+		print("\n",  message)
+	job.ftp_done()
+	if options.verbose: print(section_name,  "done")
 
-	parser = optparse.OptionParser(usage="%prog [options] [--help] config ...")
+def main():
+	parser = optparse.OptionParser(usage="%prog [options] [--help] [<section> ...]")
 	parser.disable_interspersed_args()
-	parser.add_option("-v", "--verbose", action="store_true",
-		dest="verbose", default=False, help="verbose")
-	parser.add_option("-n", "--noftp", action="store_false",
-		dest="ftp", default=True, help="don't do the ftp")
+	parser.add_option("-v", "--verbose", action="store_true", dest="verbose", default=False, help="verbose")
+	parser.add_option("-n", "--noftp", action="store_false", dest="ftp", default=True, help="don't do the ftp")
 	parser.add_option("-w", "--write", action="store_true",
 		dest="veryverbose", default=False,
 		help="debug after each write to ftp server")
@@ -297,60 +390,27 @@ def main():
 	parser.add_option("--devnull", default="/dev/null", help="file for /dev/null [%default]")
 	parser.add_option("-g", "--gpg_extra_options", action="append", default=[], help="extra options for gpg [%default]")
 	parser.add_option("-c", "--gpg_compress_level", default="9", help="gpg compress level [%default]")
+	parser.add_option("-C", "--config", default="/etc/local/dlfreebackup.conf", help="config file root [%default]")
+	parser.add_option("--config_dir_suffix", default=".d", help="suffix for directory of config files [%default]")
+	parser.add_option("--config_dir_contents_suffix", default=".conf", help="suffix for each file in directory of config files [%default]")
 
 	(options, args) = parser.parse_args()
+	
+	config = read_config(options)
 
 	gpg_options = ['gpg', '--options', '/dev/null', "--always-trust", "--batch", "--no-tty"]
 	gpg_options.extend(gpg_option_for_readonly_home(options))
 	gpg_options.extend(['--compress-level', options.gpg_compress_level])
 	gpg_options.extend(options.gpg_extra_options)
 	gpg_options.extend(['--encrypt', '--recipient'])
-
-	for a in args:
-		cfg = open(a)
-		gpgkey = cfg.readline().rstrip()
-		gpg = gpg_options + [gpgkey]
-		logname = cfg.readline().rstrip()
-		if options.ftp:
-			log = open(logname, "a")
-		ftphost, ftpuser, ftppasswd = cfg.readline().split()
-		if options.verbose:
-			print("gpgkey=", gpgkey, "logname=", logname, "ftphost=", ftphost, "ftpuser=", ftpuser)
-		ftpconnection = open_ftp_connection(ftphost, ftpuser, ftppasswd, options)
-		for l in cfg:
-			if l[0] == '#':
-				continue
-			md5 = MD5(options)
-			# dow type device key
-			dow, type,  device, key = l.rstrip().split(None, 3)
-			if type == "remount":
-				job = remount_dump(device, gpg, options)
-			elif type == "crypt":
-				job = snapshot_dump(device, key, gpg, options)
-			else:
-				os.exit(options.myname + ": bad type " + type)
-			fs = os.path.basename(device).split('-')[-1]
-			name = fs + datetime.datetime.now().strftime("-%F")
-			start = time.time()
-			if options.ftp:
-				r = ftpconnection.storbinary("STOR " + name, job.crypt_output(),  8192,  md5)
-			else:
-				skip(job.crypt_output(),  md5)
-				r = dummy_reponse0 + name + dummy_reponse1
-			url = get_url_from_response(name,  r)
-			seconds = time.time() - start
-			timestamp = datetime.datetime.fromtimestamp(start).strftime("%Y-%m-%d %H:%M:%S")
-			message = "%s %s %s %s %d bytes %.0f MiB %.0fs %.0f kbit/s %.0f minutes" % (timestamp, name, url,  md5.digest(), md5.size(),  md5.size() / 1024 / 1024,  seconds, md5.size() * 8 / seconds / 1024.0,  seconds / 60)
-			if options.ftp:
-				log.write(message + "\n")
-			if options.verbose:
-				print("\n",  message)
-			job.ftp_done()
-			if options.verbose: print(device,  "done")
-			
-		if options.ftp:
-			ftpconnection.quit()
-		cfg.close()
+	
+	sections = frozenset(args)
+	with FtpConnectionManager(options) as ftp_connection_manager:
+		for section_name in config.sections():
+			if len(sections) == 0 or section_name in sections:
+				do_backup(ftp_connection_manager, section_name, config, gpg_options, options)
+			elif options.verbose:
+				print("skipping section", section_name, "as not is", sections)
 	
 if __name__ == "__main__":
     main()
