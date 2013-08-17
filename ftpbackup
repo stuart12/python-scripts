@@ -24,6 +24,7 @@ import errno
 import configparser
 import string
 import pipes
+import time
 
 # time.strftime('%Y-%m-%dT%H:%M:%S%z')
 
@@ -406,7 +407,7 @@ def do_backup(ftp_connection_manager, section_name,	config, gpg_command, options
 		r = dummy_reponse0 + name + dummy_reponse1
 	url = get_url_from_response(name,  r)
 	seconds = time.time() - start
-	timestamp = datetime.datetime.fromtimestamp(start).strftime("%Y-%m-%d %H:%M:%S")
+	timestamp = time.strftime('%Y-%m-%dT%H:%M:%S%z')
 	message = "%s %s %s %s %d bytes %.0f MiB %.0fs %.0f kbit/s %.0f minutes" % (timestamp, name, url,  md5.digest(), md5.size(),  md5.size() / 1024 / 1024,  seconds, md5.size() * 8 / seconds / 1024.0,  seconds / 60)
 	if options.ftp:
 		with open(logname, "a") as log:
@@ -437,7 +438,7 @@ def main():
 
 	gpg_options = ['gpg', '--options', '/dev/null', "--always-trust", "--batch", "--no-tty"]
 	gpg_options.extend(gpg_option_for_readonly_home(options))
-	gpg_options.extend(['--compress-level', options.gpg_compress_level])
+	gpg_options.extend(['--compress-level', options.gpg_compress_level if options.ftp else "0"])
 	gpg_options.extend(options.gpg_extra_options)
 	gpg_options.extend(['--encrypt', '--recipient'])
 	
