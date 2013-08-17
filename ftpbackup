@@ -20,23 +20,8 @@ import shutil
 import ftplib
 import time
 import optparse, errno
-gpg_options = ('gpg', '--options', '/dev/null',
-	"--always-trust", "--batch", "--no-tty")
 
-myname = os.path.basename(sys.argv[0])
-	
-parser = optparse.OptionParser()
-parser.add_option("-v", "--verbose", action="store_true",
-	dest="verbose", default=False, help="verbose")
-parser.add_option("-n", "--noftp", action="store_false",
-	dest="ftp", default=True, help="don't do the ftp")
-parser.add_option("-w", "--write", action="store_true",
-	dest="veryverbose", default=False,
-	help="debug after each write to ftp server")
-
-(options, args) = parser.parse_args()
-
-devnull = open("/dev/null", "r+")
+# time.strftime('%Y-%m-%dT%H:%M:%S%z')
 
 def label():
 	with open("/dev/urandom", "rb") as random:
@@ -52,22 +37,24 @@ def check(message):
 	if message != None:
 		sys.exit(message)
 
-def getoutput(args):
+def getoutput(args, options):
 	err = tempfile.TemporaryFile()
 	out = tempfile.TemporaryFile()
-	status = subprocess.Popen(args, stdin=devnull, stdout=out, stderr=err, close_fds=True).wait()
-	if status != 0:
-		err.seek(0)
-		r = (str(args) + " failed " + str(status) + ": " + err.read())
-		check(r)
-	err.close()
-	out.seek(0)
+	with open(options.devnull) as devnull:
+		status = subprocess.Popen(args, stdin=devnull, stdout=out, stderr=err, close_fds=True).wait()
+		if status != 0:
+			err.seek(0)
+			r = (str(args) + " failed " + str(status) + ": " + err.read())
+			check(r)
+		err.close()
+		out.seek(0)
 	return out
 
-def run(args):
-	run_input(args, devnull)
+def run(args, options):
+	with open(options.devnull) as devnull:
+		run_input(args, devnull, options)
 
-def run_input(args, input):
+def run_input(args, input, options):
 	if options.verbose:
 		print(args)
 	err = tempfile.TemporaryFile()
@@ -82,7 +69,8 @@ def make_dump_command(device):
 	return ('dump', "-0", '-L', label(), '-f', '-', '-I', '1', '-q', device)
 
 class Waiter:
-	def __init__(self,  gpg,  device):
+	def __init__(self,  gpg,  device, options):
+		self.options = options
 		self.dump_stderr = tempfile.TemporaryFile()
 		self.dump_command = make_dump_command(device)
 		if options.verbose: print(gpg)
@@ -96,11 +84,11 @@ class Waiter:
 		return self.pid == 0;
 	def dump(self):
 		self.child("dump")
-		if options.verbose: print(self.dump_command) 
+		if self.options.verbose: print(self.dump_command) 
 		self.dumper = subprocess.Popen(self.dump_command, close_fds = True, stdout = self.crypter.stdin, stderr = self.dump_stderr)
 		self.crypter.stdin.close()
 		self.dumper.wait()
-		if options.verbose: print("dump done",  self.dumper.returncode)
+		if self.options.verbose: print("dump done",  self.dumper.returncode)
 	def child_exit(self):
 		self.child("child_exit")
 		os._exit(self.dumper.returncode)
@@ -122,42 +110,45 @@ class Waiter:
 		self.parent("crypt_output")
 		return self.crypter.stdout
 	def parent(self,  what):
-		if self.pid == 0: print("should only call " + what + " in parent", file=sys.stderr)
+		if self.pid == 0:
+			print("should only call " + what + " in parent", file=sys.stderr)
 	def child(self,  what):
 		if self.pid != 0: print("should only call " + what + " in child", file=sys.stderr)
 		
-def snapshot_dump(device, keyfile, gpg):
+def snapshot_dump(device, keyfile, gpg, options):
+	if options.verbose:
+		print("snapshot_dump of", "device=", device, "key=", keyfile)
 	fs = os.path.basename(device)
 	unlocked_tag = fs + "_backup_unlocked"
 	unlocked = os.path.join("/dev", "mapper", unlocked_tag)
 	snapshot_tag = fs + "_backup_snapshot"
 	snapshot = os.path.join(os.path.dirname(device), snapshot_tag)
 	if os.path.exists(unlocked):
-		run(["cryptsetup", "luksClose", unlocked_tag])
+		run(["cryptsetup", "luksClose", unlocked_tag], options)
 	if os.path.exists(snapshot):
-		run(["lvremove", "--force", snapshot])
-	job = Waiter(gpg,  unlocked)
+		run(["lvremove", "--force", snapshot], options)
+	job = Waiter(gpg,  unlocked, options)
 	if job.is_child():
-		run(["lvcreate", "--size", "128M", "--snapshot", "--name", snapshot_tag, device])
+		run(["lvcreate", "--size", "128M", "--snapshot", "--name", snapshot_tag, device], options)
 		open = False
 		cryptsetup_opts = ["--non-exclusive", "--readonly"]
 		cryptsetup_opts = ["--readonly"]
 		try:
 			if keyfile[0] == '!':
-				key = getoutput(["/bin/sh", "-c", keyfile[1:]])
-				run_input(["cryptsetup", "luksOpen", snapshot, unlocked_tag, "--key-file=-"] + cryptsetup_opts, key)
+				key = getoutput(["/bin/sh", "-c", keyfile[1:]], options)
+				run_input(["cryptsetup", "luksOpen", snapshot, unlocked_tag, "--key-file=-"] + cryptsetup_opts, key, options)
 				open = True
 				key.close()
 			else:
-				run(["cryptsetup", "luksOpen", snapshot, unlocked_tag, "--key-file", keyfile] + cryptsetup_opts)
+				run(["cryptsetup", "luksOpen", snapshot, unlocked_tag, "--key-file", keyfile] + cryptsetup_opts, options)
 				open = True
 			job.dump()
 		finally:
 			try:
 				if open:
-					run(["cryptsetup", "luksClose", unlocked_tag])
+					run(["cryptsetup", "luksClose", unlocked_tag], options)
 			finally:
-				run(["lvremove", "--force", snapshot])
+				run(["lvremove", "--force", snapshot], options)
 		job.child_exit()
 	return job
 
@@ -181,32 +172,34 @@ def read_mtab(fs):
 		sys.exit(fs + " not found in " + mounts)
 	return fs_real_special, fs_fake_special
 
-def remount(fs, special, flag):
-	run(['mount', '-o', 'remount,' + flag, fs])
+def remount(fs, special, flag, options):
+	run(['mount', '-o', 'remount,' + flag, fs], options)
 
-def remount_dump(fs, gpg):
+def remount_dump(fs, gpg, options):
+	if options.verbose:
+		print("remount_dump of", "device=", fs)
 	fs_real_special, fs_fake_special = read_mtab(fs)
-	remount(fs, fs_fake_special, "ro")
-	job = Waiter(gpg,  fs_real_special)
+	remount(fs, fs_fake_special, "ro", options)
+	job = Waiter(gpg,  fs_real_special, options)
 	if job.is_child():
 		try:
 			job.dump()
 		finally:
-			remount(fs, fs_fake_special, "rw")
+			remount(fs, fs_fake_special, "rw", options)
 		job.child_exit()
 	return job
 
 class MD5:
 	def digest(self):
 		return self.dumpmd5.hexdigest()
-	def __init__(self,  verbose,):
+	def __init__(self,  options,):
 		self.dumpmd5 = hashlib.md5()
 		self.bytes = 0
-		self.verbose = verbose
+		self.options = options
 	def __call__(self, buf):
 		self.dumpmd5.update(buf)
 		self.bytes += len(buf)
-		if self.verbose:
+		if self.options.veryverbose:
 			print("just wrote",  len(buf),  "bytes, total",  "%.0f KiB    \r" % (self.bytes / 1024), end=' ') 
 			sys.stdout.flush()
 	def size(self):
@@ -246,41 +239,27 @@ def get_url_from_response(remote_file,  response):
 		check("curl for " + remote_file + " is empty")
 	return response[start + len(leadin): end]
 	
-dummy_reponse0 = """226-Fichier transfere sans probleme
-226-Traitements en cours....
-226-
-226-Fichier \""""
+def gpg_option_for_readonly_home(options):
+	trustdb = os.path.expanduser("~/.gnupg/trustdb.gpg")
+	try:
+		fd = os.open(trustdb, os.O_WRONLY)
+		os.close(fd)
+		return []
+	except OSError as e:
+		if e.errno != errno.EROFS:
+			raise
+		# would have liked the quiet to get rid of "gpg: NOTE: trustdb not writable"
+		if options.verbose:
+			print("detected that " + trustdb + " is on a readonly filesystem")
+		return ["--lock-never", "--quiet", "--no-random-seed-file"]
+	# http://lists.gnupg.org/pipermail/gnupg-users/2006-September/029339.html
+	# http://www.gossamer-threads.com/lists/gnupg/users/54764
 	
-dummy_reponse1 = """\" uploade avec succes.
-226-Il est disponible via http://dl.free.fr/test-url
-226-
-226 Vous pouvez a tout moment supprimer ce fichier via: http://dl.free.fr/rm.pl?h=test-url&i=25546302&s=L9ZXaFeTKLPKR7eB9Ygq2OJG4uqSBiow"""
-
-try:
-	fd = os.open(os.path.expanduser("~/.gnupg/trustdb.gpg"), os.O_WRONLY)
-	os.close(fd)
-except OSError as e:
-	if e.errno != errno.EROFS:
-		raise
-	# would have liked the quiet to get rid of "gpg: NOTE: trustdb not writable"
-	gpg_options += ("--lock-never", "--quiet", "--no-random-seed-file")
-# http://lists.gnupg.org/pipermail/gnupg-users/2006-September/029339.html
-# http://www.gossamer-threads.com/lists/gnupg/users/54764
-
-gpg_options += ('-z', '9', '--encrypt', '--recipient')
-
-for a in args:
-	cfg = open(a)
-	gpgkey = cfg.readline().rstrip()
-	gpg = gpg_options + (gpgkey,  )
-	logname = cfg.readline().rstrip()
-	if options.ftp:
-		log = open(logname, "a")
-	ftphost, ftpuser, ftppasswd = cfg.readline().split()
-	if options.verbose:
-		print("gpgkey=", gpgkey, "logname=", logname, "ftphost=", ftphost, "ftpuser=", ftpuser)
+def open_ftp_connection(ftphost, ftpuser, ftppasswd, options):
+	if not options.ftp:
+		return None
 	tries = 0
-	while options.ftp:
+	while True:
 		try:
 			ftpconnection = ftplib.FTP(ftphost, ftpuser, ftppasswd)             
 		except EOFError as e:
@@ -290,45 +269,88 @@ for a in args:
 			break
 		tries = tries + 1
 		if tries > 60:
-			sys.exit(str(tries) + " connections to " + ftphost + " failed")
+			sys.exit(options.myname + ": " + str(tries) + " connections to " + ftphost + " failed")
 		time.sleep(20)
-	else:
-		ftpconnection = None
-	for l in cfg:
-		if l[0] == '#':
-			continue
-		md5 = MD5(options.veryverbose)
-		# dow type device key
-		dow, type,  device, key = l.rstrip().split(None, 3)
-		if type == "remount":
-			if options.verbose:
-				print("remount_dump of", "device=", device)
-			job = remount_dump(device, gpg)
-		elif type == "crypt":
-			if options.verbose:
-				print("snapshot_dump of", "device=", device, "key=", key)
-			job = snapshot_dump(device, key, gpg)
-		else:
-			print("bad type",  type, file=sys.stderr)
-		fs = os.path.basename(device).split('-')[-1]
-		name = fs + datetime.datetime.now().strftime("-%F")
-		start = time.time()
-		if options.ftp:
-			r = ftpconnection.storbinary("STOR " + name, job.crypt_output(),  8192,  md5)
-		else:
-			skip(job.crypt_output(),  md5)
-			r = dummy_reponse0 + name + dummy_reponse1
-		url = get_url_from_response(name,  r)
-		seconds = time.time() - start
-		timestamp = datetime.datetime.fromtimestamp(start).strftime("%Y-%m-%d %H:%M:%S")
-		message = "%s %s %s %s %d bytes %.0f MiB %.0fs %.0f kbit/s %.0f minutes" % (timestamp, name, url,  md5.digest(), md5.size(),  md5.size() / 1024 / 1024,  seconds, md5.size() * 8 / seconds / 1024.0,  seconds / 60)
-		if options.ftp:
-			log.write(message + "\n")
-		if options.verbose:
-			print("\n",  message)
-		job.ftp_done()
-		if options.verbose: print(device,  "done")
+	return ftpconnection
+
+def main():
+	dummy_reponse0 = """226-Fichier transfere sans probleme
+	226-Traitements en cours....
+	226-
+	226-Fichier \""""
 		
-	if options.ftp:
-		ftpconnection.quit()
-	cfg.close()
+	dummy_reponse1 = """\" uploade avec succes.
+	226-Il est disponible via http://dl.free.fr/test-url
+	226-
+	226 Vous pouvez a tout moment supprimer ce fichier via: http://dl.free.fr/rm.pl?h=test-url&i=25546302&s=L9ZXaFeTKLPKR7eB9Ygq2OJG4uqSBiow"""
+
+	parser = optparse.OptionParser(usage="%prog [options] [--help] config ...")
+	parser.disable_interspersed_args()
+	parser.add_option("-v", "--verbose", action="store_true",
+		dest="verbose", default=False, help="verbose")
+	parser.add_option("-n", "--noftp", action="store_false",
+		dest="ftp", default=True, help="don't do the ftp")
+	parser.add_option("-w", "--write", action="store_true",
+		dest="veryverbose", default=False,
+		help="debug after each write to ftp server")
+	parser.add_option("--myname", default=os.path.basename(sys.argv[0]), help="program name for messages [%default]")
+	parser.add_option("--devnull", default="/dev/null", help="file for /dev/null [%default]")
+	parser.add_option("-g", "--gpg_extra_options", action="append", default=[], help="extra options for gpg [%default]")
+	parser.add_option("-c", "--gpg_compress_level", default="9", help="gpg compress level [%default]")
+
+	(options, args) = parser.parse_args()
+
+	gpg_options = ['gpg', '--options', '/dev/null', "--always-trust", "--batch", "--no-tty"]
+	gpg_options.extend(gpg_option_for_readonly_home(options))
+	gpg_options.extend(['--compress-level', options.gpg_compress_level])
+	gpg_options.extend(options.gpg_extra_options)
+	gpg_options.extend(['--encrypt', '--recipient'])
+
+	for a in args:
+		cfg = open(a)
+		gpgkey = cfg.readline().rstrip()
+		gpg = gpg_options + [gpgkey]
+		logname = cfg.readline().rstrip()
+		if options.ftp:
+			log = open(logname, "a")
+		ftphost, ftpuser, ftppasswd = cfg.readline().split()
+		if options.verbose:
+			print("gpgkey=", gpgkey, "logname=", logname, "ftphost=", ftphost, "ftpuser=", ftpuser)
+		ftpconnection = open_ftp_connection(ftphost, ftpuser, ftppasswd, options)
+		for l in cfg:
+			if l[0] == '#':
+				continue
+			md5 = MD5(options)
+			# dow type device key
+			dow, type,  device, key = l.rstrip().split(None, 3)
+			if type == "remount":
+				job = remount_dump(device, gpg, options)
+			elif type == "crypt":
+				job = snapshot_dump(device, key, gpg, options)
+			else:
+				os.exit(options.myname + ": bad type " + type)
+			fs = os.path.basename(device).split('-')[-1]
+			name = fs + datetime.datetime.now().strftime("-%F")
+			start = time.time()
+			if options.ftp:
+				r = ftpconnection.storbinary("STOR " + name, job.crypt_output(),  8192,  md5)
+			else:
+				skip(job.crypt_output(),  md5)
+				r = dummy_reponse0 + name + dummy_reponse1
+			url = get_url_from_response(name,  r)
+			seconds = time.time() - start
+			timestamp = datetime.datetime.fromtimestamp(start).strftime("%Y-%m-%d %H:%M:%S")
+			message = "%s %s %s %s %d bytes %.0f MiB %.0fs %.0f kbit/s %.0f minutes" % (timestamp, name, url,  md5.digest(), md5.size(),  md5.size() / 1024 / 1024,  seconds, md5.size() * 8 / seconds / 1024.0,  seconds / 60)
+			if options.ftp:
+				log.write(message + "\n")
+			if options.verbose:
+				print("\n",  message)
+			job.ftp_done()
+			if options.verbose: print(device,  "done")
+			
+		if options.ftp:
+			ftpconnection.quit()
+		cfg.close()
+	
+if __name__ == "__main__":
+    main()
