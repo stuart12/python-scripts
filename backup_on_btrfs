@@ -1,15 +1,13 @@
 #!/usr/bin/python3
-# transform Copyright (c) 2013 Stuart Pook (http://www.pook.it/)
+# backup_on_btrfs, Copyright (C) 2013 Stuart Pook (http://www.pook.it/)
 # backup btrfs filesystems on a btrfs filesystem
 #
 # This program is free software: you can redistribute it and/or modify it under
 # the terms of the GNU General Public License as published by the Free Software
 # Foundation, either version 3 of the License, or (at your option) any later version.
-#
 # This program is distributed in the hope that it will be useful, but WITHOUT ANY
 # WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
 # FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
-#
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
@@ -219,7 +217,8 @@ def main():
 		for fs in args:
 			if options.initialise:
 				initialise(fs, options)
-			btrfs_backup(fs, options)
+			else:
+				btrfs_backup(fs, options)
 
 if __name__ == '__main__':
 	main()
