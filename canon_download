@@ -58,6 +58,7 @@ def get_files(camera, where, dir_prefix, seen, found, options):
 	return result
 	
 def look_for_canon(camera, where, seen, found, options):
+	if options.verbose: print("look_for_canon in ", where)
 	jobs = []
 	for d, junk in camera.list_folders(where):
 		nd = os.path.join(where, d)
@@ -67,6 +68,8 @@ def look_for_canon(camera, where, seen, found, options):
 			jobs.extend(get_files(camera, nd, d[:-len(suffix)], seen, found, options))
 		else:
 			jobs.extend(look_for_canon(camera, nd, seen,found,  options))
+	if options.verbose:
+		print("look_for_canon:", jobs)
 	return jobs
 			
 def download(jobs, camera, options):
