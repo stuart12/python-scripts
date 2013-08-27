@@ -264,7 +264,7 @@ def burn(iso):
 	args = [command, 'driveropts=burnfree', '-eject', '-tao', '-data', multi, 'dev=' + rcdrom, '-']
 	if subprocess.Popen(debug(args), close_fds = True, stdin = iso, stdout = null, stderr = errors).wait():
 		errors.seek(0)
-		sys.exit(errors.read() + myname + ": " + command + " failed")
+		sys.exit(errors.read().decode() + myname + ": " + command + " failed")
 
 def mkiso(dump, dumpdates, md5sums, dump_name, options):
 	command = mkisofs
