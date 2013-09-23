@@ -45,6 +45,8 @@ def do_album(album, snapshots, used, options):
 			args.append(album + "/" + file + "=" + f)
 			sz += getsize(f, options)
 			if (used + sz) * options.block_size >= options.dvd_size:
+				if options.verbose:
+					print("no more space for", album)
 				return 0, []
 	
 	current_dir = os.path.join(options.photos, album)
@@ -59,6 +61,8 @@ def do_album(album, snapshots, used, options):
 			args.append(album + "/" + file + "=" + f)
 			sz += getsize(f, options)
 			if (used + sz) * options.block_size >= options.dvd_size:
+				if options.verbose:
+					print("too big?", album)
 				return 0, []
 			
 	if not options.quiet:
@@ -80,6 +84,7 @@ def main():
 	parser.add_option("--photo_suffix", default=".cr2", help="photo suffix [%default]")
 	parser.add_option("--block_size", type='int', default=2048, help="block size for space calculations [%default]")
 	parser.add_option("--dvd_size", type='int', default=4700 * 1000 * 1000, help="DVD size for space calculations [%default]")
+	parser.add_option("-2", "--dual_layer", action="store_const", const=8540 * 1000 * 1000, dest='dvd_size', help="dual layer DVD size for space calculations")
 	parser.add_option("--rawtherapee_suffix", default=".cr2.pp3", help="rawtherapee suffix [%default]")
 	parser.add_option("--command", default="dvdmake", help="command to create a DVD [%default]")
 
@@ -97,6 +102,9 @@ def main():
 		sz, arguments = do_album(i, snapshots, size, options)
 		size += sz
 		command.extend(arguments)
+		
+	if size == 0:
+		sys.exit(os.path.basename(sys.argv[0]) + ": no space for any albums")
 	
 	bytes = size * options.block_size
 	print(size, "sectors,", bytes, "bytes,", "%.1f %%" % (bytes * 100 / options.dvd_size))
