@@ -35,7 +35,7 @@ def main():
 		
 	file_list.seek(0)
 	
-	c2 = [ "transform", "--max_filename_characters=63", "--delete", "--list" ]
+	c2 = [ "transform", "--quiet", "--max_filename_characters=63", "--delete", "--list" ]
 #	if options.verbose:
 #		c2.append("--verbose")
 		
