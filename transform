@@ -1,5 +1,5 @@
 #!/usr/bin/python2.5 -u
-# transform Copyright (c) 2012 Stuart Pook (http://www.pook.it/)
+# transform Copyright (c) 2012, 2013 Stuart Pook (http://www.pook.it/)
 # transform all the files in a directory using a set of rules
 #
 # This program is free software: you can redistribute it and/or modify it under
@@ -263,6 +263,7 @@ def read_list(suffixes):
 
 def main(argv):
 	transform = (
+		(u".pcd", u".jpg", ["pcd-to-jpeg", "--output"]),
 		(u".cr2", u".jpg", ["cr2-to-jpeg"]),
 		(u".cr2.pp3", u".jpg", ["cr2-to-jpeg"]),
 		(u".flac", u".ogg", ["oggenc", "--quiet", "--quality=5", "-o"]),
