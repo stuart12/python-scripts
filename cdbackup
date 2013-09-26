@@ -1,11 +1,11 @@
 #!/usr/bin/python3
-# backup a filesystem to a CDROM, Copyright (C) 2013 Stuart Pook
+# incrementally backup a filesystem to a CDROM, Copyright (C) 2013 Stuart Pook, Uses dump(1) so only works with ext2/3/4 filesystems. Dumps are encrypted using gpg.
 # This program is free software: you can redistribute it and/or modify it under
 # the terms of the GNU General Public License as published by the Free Software
 # Foundation, either version 3 of the License, or (at your option) any later
 # version.  This program is distributed in the hope that it will be useful, but
-# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
-# FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
+# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+# or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
 # more details.  You should have received a copy of the GNU General Public
 # License along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
@@ -353,7 +353,7 @@ def incremental(fs_special):
 def initialize(fs_special):
 	secret_key_name = "offline-secret.key"
 	public_key_name = "offline-public.key"
-	readme = tempfile.NamedTemporaryFile(prefix="cdbackup7")
+	readme = tempfile.NamedTemporaryFile(mode="w+", prefix="cdbackup7")
 	readme.write("\
 set -e\n\
 t=`mktemp -t -d readme.XXXXXXXX`\n\
@@ -372,7 +372,7 @@ echo cd $t/fs\n\
 ");
 	readme.flush()
 
-	md5sums = tempfile.NamedTemporaryFile(prefix="cdbackup8")
+	md5sums = tempfile.NamedTemporaryFile(mode="w+", prefix="cdbackup8")
 
 	armoured_secret_key = tempfile.NamedTemporaryFile(prefix="cdbackup9")
 	if subprocess.Popen(gpg_options + stuart_gpg_options + ("--armor", "--export-secret-keys", key), close_fds = True, stdout = armoured_secret_key).wait():
@@ -386,7 +386,7 @@ echo cd $t/fs\n\
 	armoured_public_key.seek(0)
 	md5sums.write(hashlib.md5(armoured_public_key.read()).hexdigest() + "  " + public_key_name + "\n")
 
-	dumpdates = tempfile.NamedTemporaryFile(prefix="cdbackupB")
+	dumpdates = tempfile.NamedTemporaryFile(mode="w+", prefix="cdbackupB")
 	dump = tempfile.NamedTemporaryFile(prefix="cdbackupC")
 
 	dump_name = do_dump(0, dump, dumpdates, md5sums, fs_special)
