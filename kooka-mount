@@ -1,0 +1,83 @@
+#!/usr/bin/python3
+# kooka-mount, Copyright (C) 2013 Stuart Pook (http://www.pook.it/)
+#
+# This program is free software: you can redistribute it and/or modify it under
+# the terms of the GNU General Public License as published by the Free Software
+# Foundation, either version 3 of the License, or (at your option) any later version.
+# This program is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+# FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+import getpass
+import os
+import sys
+import tempfile
+import optparse
+import subprocess
+import errno
+
+def myname():
+	return os.path.basename(sys.argv[0])
+
+def ismounted(options):
+	with open(options.mounts) as f:
+		for line in f:
+			fields = line.split(" ")
+			if len(fields) > 2 and fields[0] == options.remote:
+				return fields[1]
+	return None
+
+def kooka_mount(options):
+	ucmd = ["fusermount", "-u"]
+	if options.print:
+		print(options.mount_point)
+	elif options.print_umount:
+		print(" ".join(ucmd), options.mount_point)
+	
+	elif options.umount:
+		mount_point = ismounted(options)
+		if mount_point:
+			subprocess.check_call(ucmd + [mount_point])
+		else:
+			sys.exit(myname() + ": " + options.remote + " is not mounted")
+	else:
+		mount_point = ismounted(options)
+		if mount_point:
+			print(": already mounted on; cd", mount_point)
+		else:
+			try:
+				os.mkdir(options.mount_point, 0o700)
+			except FileExistsError as ex:
+				if ex.errno != errno.EEXIST:
+					raise
+			subprocess.check_call(["sshfs", "-o", "uid=%d" % os.getuid(), options.remote, options.mount_point])
+			print(": mounted;", options.mount_point)
+
+def main():	
+	parser = optparse.OptionParser(usage="%prog [--help] [options]")
+	parser.disable_interspersed_args()
+	
+	parser.add_option("-u", "--umount", "--unmount", action="store_true", help="umount rather than mount")
+	parser.add_option("-p", "--print", action="store_true", help="just print path")
+	parser.add_option("--print_umount", action="store_true", help="print command to umount")
+	parser.add_option("--remote", default=os.environ.get("KOOKAMOUNT", None), help="path to mount [%default]")
+	parser.add_option("--mount_point", default=os.path.join(tempfile.gettempdir(), "sshfs-" + getpass.getuser()), help="path to mount [%default]")
+	parser.add_option("--mounts", default="/proc/mounts", help="system list of current mounts [%default]")
+	
+	(options, args) = parser.parse_args()
+	
+	if len(args) > 0:
+		parser.error("no arguments accepted")
+		
+	if not options.remote:
+		parser.error("must set KOOKAMOUNT or use --remote option")
+
+	kooka_mount(options)
+
+if __name__ == '__main__':
+	main()
+
+# -o "LocalForward=43123 127.0.0.1:143" -o "LocalForward=43124 127.0.0.1:587"
+# -o LocalForward="localhost:20143:localhost:imap" \
