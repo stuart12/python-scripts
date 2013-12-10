@@ -13,6 +13,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 import os, optparse, sys, errno, subprocess
+import hashlib
 
 def get_first_snapshot_with_album(album, snapshots, options):
 	for snapshot in snapshots:
@@ -35,14 +36,15 @@ def getsize(path, options):
 
 def do_album(album, snapshots, used, options):
 	snapshot, files  = get_first_snapshot_with_album(album, snapshots, options)
-	args = []
+	
+	names_on_dvd = []
 	sz = 0
 	photos = set()
 	for file in files:
 		if file.endswith(options.photo_suffix):
 			photos.add(file[0:-len(options.photo_suffix)])
 			f = os.path.join(options.snapshots, snapshot, album, file)
-			args.append(album + "/" + file + "=" + f)
+#			args.append(album + "/" + file + "=" + f)
 			sz += getsize(f, options)
 			if (used + sz) * options.block_size >= options.dvd_size:
 				if options.verbose:
@@ -53,12 +55,14 @@ def do_album(album, snapshots, used, options):
 	for file in os.listdir(current_dir):
 		if file.endswith(options.photo_suffix):
 			if not options.force:
-				assert file[0:-len(options.photo_suffix)] in photos, "photo " + file + " not in snapshot " + snapshot + " for " + album
+				assert file[0:-len(options.photo_suffix)] in photos, "photo " + file + " not in snapshot " + snapshot + " for " + album + " " + str(photos)
 		elif file.endswith(options.rawtherapee_suffix):
 			if not options.force:
 				assert file[0:-len(options.rawtherapee_suffix)] in photos, "pp3 " + file + " not in snapshot " + snapshot + " for " + album
 			f = os.path.join(current_dir, file)
-			args.append(album + "/" + file + "=" + f)
+			files.append(f)
+			names_on_dvd.append(album + "/" + file)
+#			args.append(album + "/" + file + "=" + f)
 			sz += getsize(f, options)
 			if (used + sz) * options.block_size >= options.dvd_size:
 				if options.verbose:
@@ -67,12 +71,27 @@ def do_album(album, snapshots, used, options):
 			
 	if not options.quiet:
 		print(album, sz)
-	return sz, args
+	return sz, names_on_dvd, files
+	
+def do_md5sum(names_on_dvd, filenames, tmp, options):
+	for name, file in zip(names_on_dvd, filenames):
+		with open(file, "rb") as data:
+			m = hashlib.md5()
+			while True:
+				s = file.read(1024 * 8)
+				if not s:
+					break
+				m.update(s)
+			v = "%s *%s" % (name, m.hexdigest())
+			if options.verbose:
+				print(v)
+			print(v, file=tmp)
 	
 def main():	
-	parser = optparse.OptionParser(usage="%prog [--help] -V volid [options] album ...")
+	parser = optparse.OptionParser(usage="%prog [--help] [options] album ...")
 	parser.disable_interspersed_args()
 	
+	parser.add_option("-K", "--keep_MD5", action="store_true", help="leave MD5 file in /tmp")
 	parser.add_option("-x", "--execute", action="store_true", help="make DVD")
 	parser.add_option("-f", "--force", action="store_true", help="don't check that all photos are present")
 	parser.add_option("-q", "--quiet", action="store_true", help="no messages")
@@ -90,28 +109,46 @@ def main():
 
 	(options, args) = parser.parse_args()
 	
-	if not options.volid:
-		parser.error("must use the --volid non-optional option")
+	if not args:
+		parser.error("must have at least on album")
 		
+	volid = None
+	if len(args) == 1:
+		volid = args[0]
+	if options.volid:
+		volid = options.volid
+	if not volid:
+		parser.error("must use the --volid option when more than one album")
+	
 	snapshots = os.listdir(options.snapshots)
 	snapshots.sort()
 		
 	size = 0
 	command = [ options.command, "-V", options.volid, "-graft-points" ]
+	
+	names_on_dvd = []
+	filenames = []
+	
 	for i in args:
-		sz, arguments = do_album(i, snapshots, size, options)
+		sz, names, files = do_album(i, snapshots, size, options)
 		size += sz
-		command.extend(arguments)
+		if size == 0:
+			sys.exit(os.path.basename(sys.argv[0]) +": no space for first album: " + i)
+		names_on_dvd.extend(names_on_dvd)
+		filenames.extend(files)
 		
-	if size == 0:
-		sys.exit(os.path.basename(sys.argv[0]) + ": no space for any albums")
+	for name, file in zip(names_on_dvd, filenames):
+		command.append(name+ "=" + file)
 	
 	bytes = size * options.block_size
 	print(size, "sectors,", bytes, "bytes,", "%.1f %%" % (bytes * 100 / options.dvd_size))
-	if options.verbose:
-		print(command)
-	if options.execute:
-		subprocess.check_call(command)
+	with tempfile.NamedTemporaryFile(mode='w', prefix='photo-directory-archive', delete=(not options.keep_MD5)) as md5:
+		do_md5sum(names_on_dvd, filenames, md5, options)
+		command.append("md5sums.txt=" + md5)
+		if options.verbose:
+			print(command)
+		if options.execute:
+			subprocess.check_call(command)
 
 if __name__ == "__main__":
 	main()
