@@ -87,7 +87,7 @@ def create_snapshot(fs, snapshot, options):
 	btrfs(["subvolume", "snapshot", "-r", fs, snapshot ], options)
 	
 def create_tag(options):
-	return datetime.datetime.utcnow().isoformat() + "+00:00"
+	return datetime.datetime.utcnow().isoformat() + "+0000"
 	
 def snapshot_source(fs, tag, options):
 	destination = os.path.join(options.snapshots, fs, tag)
