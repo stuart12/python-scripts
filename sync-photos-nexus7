@@ -1,6 +1,49 @@
+#!/usr/bin/python3
+# sync-photos-nexus7 Copyright (c) 2013 Stuart Pook (http://www.pook.it/)
+# Send the correct photos to my nexus 7.
+# This program is free software: you can redistribute it and/or modify it under
+# the terms of the GNU General Public License as published by the Free Software
+# Foundation, either version 3 of the License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+# FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+import optparse
+import os
+import subprocess
+import sys
+import pipes
+
+def main():
+	parser = optparse.OptionParser(usage="usage: %prog [options] [--help]")
+	parser.add_option("-t", "--target_dir", default=os.path.expanduser("/disks/ws/converted-photos"), help="target directory [%default]")
+	parser.add_option("--machine", default="nexus7", help="where to send to [%default]")
+	parser.add_option("-s", "--source_dir", default="/disks/ws/converted-photos", help="source directory [%default]")
+	parser.add_option("--dest_dir", default="/mnt/shell/emulated/0/Stuart/photos-sync/", help="destination directory [%default]")
+	parser.add_option("-v", "--verbose", action="store_true", help="verbose")
+	parser.add_option("-n", "--norun", action="store_true", help="don't run the rsync")
+	parser.add_option("-S", "--size", default="2410x1472-94", help="size [%default]")
+	(options, args) = parser.parse_args()
+	
+	if args:
+		parser.error("no arguments allowed")
+		
+	cmd = ["rsync", "--copy-unsafe-links", "--size-only", "--delete", "-Pr", os.path.join(options.source_dir, options.size) + "/", options.machine + ":" + options.dest_dir]
+	if options.verbose:
+		print(" ".join(pipes.quote(c) for c in cmd))
+	if not options.norun:
+		subprocess.check_call(cmd)
+	
+if __name__ == "__main__":
+	main()
+
 #!/bin/sh -x
-from=2560x2560-94
+#from=2560x2560-94
 #extra=2012-11Cuba
 #extra=2013-01Australia
-exec rsync --copy-unsafe-links --size-only --delete-before -Pr /disks/ws/converted-photos/$from/$extra nexus7:/mnt/shell/emulated/0/Stuart/photos-sync/
+#exec rsync --copy-unsafe-links --size-only --delete-before -Pr /disks/ws/converted-photos/$from/$extra nexus7:/mnt/shell/emulated/0/Stuart/photos-sync/
 
