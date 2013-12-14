@@ -71,16 +71,17 @@ def walk(dir, extra, files, suffixes, options, read_all_files):
 						
 		readable_names = []
 		for d in dirnames:
-			path = os.path.join(dirpath, d)
-			stat_buf = os.lstat(path)
-#			if os.path.islink(path):
-			if stat.S_ISLNK(stat_buf.st_mode):
-				ex = path[len(dir) + 1:]
-				if options.verbose:
-					print "walk recusive", dir, ex, path
-				walk(dir, ex, files, suffixes, options, read_all_files)
-			elif read_all_files or (stat_buf.st_mode & options.directory_permissions) == options.directory_permissions: 
-				readable_names.append(d)
+			if not d.startswith(options.tmp_prefix):
+				path = os.path.join(dirpath, d)
+				stat_buf = os.lstat(path)
+	#			if os.path.islink(path):
+				if stat.S_ISLNK(stat_buf.st_mode):
+					ex = path[len(dir) + 1:]
+					if options.verbose:
+						print "walk recusive", dir, ex, path
+					walk(dir, ex, files, suffixes, options, read_all_files)
+				elif read_all_files or (stat_buf.st_mode & options.directory_permissions) == options.directory_permissions: 
+					readable_names.append(d)
 		dirnames[:] = readable_names
 	
 def reap(done, ntasks, running, options):
