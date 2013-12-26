@@ -54,7 +54,7 @@ class ListClients(object):
 		self._context_notify_cb = lib_pulseaudio.pa_context_notify_cb_t(self.context_notify_cb)		
 		self._pa_client_info_cb = lib_pulseaudio.pa_client_info_cb_t(self.pa_client_info_cb)		
 		self._successfull_kill_cb = lib_pulseaudio.pa_context_success_cb_t(self.successfull_kill)		
-		self._make_sink_map_cb = lib_pulseaudio.pa_sink_info_cb_t(self.make_sink_map)		
+		self._find_requested_sink_cb = lib_pulseaudio.pa_sink_info_cb_t(self.find_requested_sink)		
 		
 		self._pa_sink_input_info_cb = lib_pulseaudio.pa_sink_input_info_cb_t(self.check_sink)
 
@@ -99,7 +99,7 @@ class ListClients(object):
 		print("client killed", number)
 		self.handler_done("successfull_kill")
 		
-	def make_sink_map(self, context, info, eol, userdata):
+	def find_requested_sink(self, context, info, eol, userdata):
 		if eol == 0:
 			sink = info[0]
 			if self.options.verbose:
@@ -109,6 +109,8 @@ class ListClients(object):
 				if self.options.verbose:
 					print("make_sink_map have index", self.sink, "for", self.options.sink)
 		else:
+			if self.sink < 0:
+				sys.exit('sink "' + self.options.sink + "' not found")
 			o = lib_pulseaudio.pa_context_get_sink_input_info_list(context, self._pa_sink_input_info_cb, None)
 			lib_pulseaudio.pa_operation_unref(o)
 			
@@ -125,7 +127,7 @@ class ListClients(object):
 #			o = lib_pulseaudio.pa_context_get_client_info_list(context, self._pa_client_info_cb, None)
 #			lib_pulseaudio.pa_operation_unref(o)
 			if self.options.sink:
-				o = lib_pulseaudio.pa_context_get_sink_info_list(context, self._make_sink_map_cb, None)
+				o = lib_pulseaudio.pa_context_get_sink_info_list(context, self._find_requested_sink_cb, None)
 				lib_pulseaudio.pa_operation_unref(o)
 			else:
 				o = lib_pulseaudio.pa_context_get_sink_input_info_list(context, self._pa_sink_input_info_cb, None)
