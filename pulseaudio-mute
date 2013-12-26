@@ -19,10 +19,12 @@ import pwd
 import os
 import signal
 import errno
+import subprocess
+import optparse
 #from ctypes import POINTER, c_ubyte, c_void_p, c_ulong, cast
 
 # From https://github.com/Valodim/python-pulseaudio
-sys.path.append("../python-pulseaudio/pulseaudio")
+#sys.path.append("../python-pulseaudio/pulseaudio")
 import lib_pulseaudio
 
 def sendkill(pid, sig):
@@ -44,12 +46,17 @@ def kill_process(pid):
 	sendkill(pid, signal.SIGKILL)
 
 class ListClients(object):
-	def __init__(self):
+	def __init__(self, options):
+		self.options = options
+		self.sink = -1
 		self.outstanding_handlers = 1
 		self._user_name = pwd.getpwuid( os.getuid() )[ 0 ]
 		self._context_notify_cb = lib_pulseaudio.pa_context_notify_cb_t(self.context_notify_cb)		
 		self._pa_client_info_cb = lib_pulseaudio.pa_client_info_cb_t(self.pa_client_info_cb)		
 		self._successfull_kill_cb = lib_pulseaudio.pa_context_success_cb_t(self.successfull_kill)		
+		self._make_sink_map_cb = lib_pulseaudio.pa_sink_info_cb_t(self.make_sink_map)		
+		
+		self._pa_sink_input_info_cb = lib_pulseaudio.pa_sink_input_info_cb_t(self.check_sink)
 
 		self._mainloop = lib_pulseaudio.pa_mainloop_new()
 		_mainloop_api = lib_pulseaudio.pa_mainloop_get_api(self._mainloop)
@@ -66,27 +73,63 @@ class ListClients(object):
 #			print("wait")
 #			lib_pulseaudio.pa_threaded_mainloop_wait(self._mainloop)
 
+	def check_sink(self, context, info, eol, userdata):
+#		if self.options.verbose:
+#			print("check_sink", eol, info)
+		if eol < 0:
+			sys("error pa_context_get_sink_input_info_list")
+		if eol == 0:
+			sink = info[0]
+			if self.options.verbose:
+				print("check_sink", sink.name, sink.index, sink.sink)
+			if self.sink < 0 or sink.sink == self.sink:
+				if self.options.verbose:
+					print("check_sink", "stop sink", sink.index)
+				self.handle_client(context, sink, sink.proplist)
+		else:
+			self.handler_done("check_sink")
+	
 	def handler_done(self, who):
+#		print("handler_done ", who, self.outstanding_handlers)
 		self.outstanding_handlers -= 1
 		if self.outstanding_handlers == 0:
-			print("handler_done", who)
 			lib_pulseaudio.pa_mainloop_quit(self._mainloop, 4)
 
 	def successfull_kill(self, context, number, userdata):
 		print("client killed", number)
 		self.handler_done("successfull_kill")
+		
+	def make_sink_map(self, context, info, eol, userdata):
+		if eol == 0:
+			sink = info[0]
+			if self.options.verbose:
+				print("make_sink_map", sink.name, sink.index)
+			if sink.name.decode('ascii') == self.options.sink:
+				self.sink = sink.index
+				if self.options.verbose:
+					print("make_sink_map have index", self.sink, "for", self.options.sink)
+		else:
+			o = lib_pulseaudio.pa_context_get_sink_input_info_list(context, self._pa_sink_input_info_cb, None)
+			lib_pulseaudio.pa_operation_unref(o)
 			
 	def context_notify_cb(self, context, _):
 		state = lib_pulseaudio.pa_context_get_state(context)
 
 		if state == lib_pulseaudio.PA_CONTEXT_READY:
-			print("Pulseaudio connection ready...")
+			if self.options.verbose:
+				print("Pulseaudio connection ready...")
 			# Connected to Pulseaudio. Now request that sink_info_cb
 			# be called with information about the available sinks.
 			#           o = pa_context_get_sink_info_list(context, self._sink_info_cb, None)
 			#           pa_operation_unref(o)
-			o = lib_pulseaudio.pa_context_get_client_info_list(context, self._pa_client_info_cb, None)
-			lib_pulseaudio.pa_operation_unref(o)
+#			o = lib_pulseaudio.pa_context_get_client_info_list(context, self._pa_client_info_cb, None)
+#			lib_pulseaudio.pa_operation_unref(o)
+			if self.options.sink:
+				o = lib_pulseaudio.pa_context_get_sink_info_list(context, self._make_sink_map_cb, None)
+				lib_pulseaudio.pa_operation_unref(o)
+			else:
+				o = lib_pulseaudio.pa_context_get_sink_input_info_list(context, self._pa_sink_input_info_cb, None)
+				lib_pulseaudio.pa_operation_unref(o)
 
 		elif state == lib_pulseaudio.PA_CONTEXT_FAILED :
 			print( "Connection failed")
@@ -100,10 +143,14 @@ class ListClients(object):
 		if self._user_name.encode('ascii') == user:
 			name = lib_pulseaudio.pa_proplist_gets(proplist, b"application.name")
 			binary = lib_pulseaudio.pa_proplist_gets(proplist, b"application.process.binary").decode('ascii')
-			if binary in ["vlc" , "aplay", 'alsaplayer', "mplayer"]:
+			if binary in ["vlc" , "aplay", 'alsaplayer', "mplayer", "pacat"]:
 				pid = lib_pulseaudio.pa_proplist_gets(proplist, b"application.process.id")
 				print("kill", binary, pid)
 				kill_process(int(pid))
+			elif binary == "amarok":
+				print("running", binary)
+				if not self.options.dryrun:
+					subprocess.check_call(["amarok", "--stop"])
 			elif binary == "mplayer":
 				print("kill_client", binary)
 				self.outstanding_handlers += 1
@@ -124,7 +171,17 @@ class ListClients(object):
 			self.handler_done("loop")
 		
 def main():		
-	lc = ListClients()
+	parser = optparse.OptionParser(usage="%prog [--help] [options] filesystem ...")
+	parser.disable_interspersed_args()
+	
+	parser.add_option("-v", "--verbose", action="store_true", help="verbose")
+	parser.add_option("--on", action="store_true", help="ignored")
+	parser.add_option("-n", "--dryrun", action="store_true", help="don't execute")
+	parser.add_option("--sink", default=None, help="sink to stop (None==all) [%default]")
+	(options, args) = parser.parse_args()
+	if len(args) :
+		parser.error("no args")
+	lc = ListClients(options)
 
 if __name__ == '__main__':
     main()
