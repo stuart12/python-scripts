@@ -1,0 +1,130 @@
+#!/usr/bin/python3
+# pluseaudio-mute, Copyright (C) 2013 Stuart Pook (http://www.pook.it/)
+# run commands depending on what pluseaudio clients are connected
+#
+# This program is free software: you can redistribute it and/or modify it under
+# the terms of the GNU General Public License as published by the Free Software
+# Foundation, either version 3 of the License, or (at your option) any later version.
+# This program is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+# FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+# pacmd  list-clients
+
+import time
+import sys
+import pwd
+import os
+import signal
+import errno
+#from ctypes import POINTER, c_ubyte, c_void_p, c_ulong, cast
+
+# From https://github.com/Valodim/python-pulseaudio
+sys.path.append("../python-pulseaudio/pulseaudio")
+import lib_pulseaudio
+
+def sendkill(pid, sig):
+	try:
+		os.kill(int(pid), sig)
+		return True
+	except ProcessLookupError as e:
+		if e.errno != errno.ESRCH:
+			raise
+	return False
+	
+def kill_process(pid):
+	if not sendkill(pid, signal.SIGTERM):
+		return
+	for i in range(10):
+		if not sendkill(pid, 0):
+			return
+		time.sleep(0.05)
+	sendkill(pid, signal.SIGKILL)
+
+class ListClients(object):
+	def __init__(self):
+		self.outstanding_handlers = 1
+		self._user_name = pwd.getpwuid( os.getuid() )[ 0 ]
+		self._context_notify_cb = lib_pulseaudio.pa_context_notify_cb_t(self.context_notify_cb)		
+		self._pa_client_info_cb = lib_pulseaudio.pa_client_info_cb_t(self.pa_client_info_cb)		
+		self._successfull_kill_cb = lib_pulseaudio.pa_context_success_cb_t(self.successfull_kill)		
+
+		self._mainloop = lib_pulseaudio.pa_mainloop_new()
+		_mainloop_api = lib_pulseaudio.pa_mainloop_get_api(self._mainloop)
+		context = lib_pulseaudio.pa_context_new(_mainloop_api, b'pulseaudio_mute')
+		lib_pulseaudio.pa_context_set_state_callback(context, self._context_notify_cb, None)
+		lib_pulseaudio.pa_context_connect(context, None, 0, None)
+#		lib_pulseaudio.pa_threaded_mainloop_start(self._mainloop)
+		lib_pulseaudio.pa_mainloop_run(self._mainloop, None)
+	
+#http://maemo.org/api_refs/5.0/5.0-final/pulseaudio/threaded_mainloop.html
+#		lib_pulseaudio.pa_threaded_mainloop_accept(self._mainloop)
+#		lib_pulseaudio.pa_threaded_mainloop_wait(self._mainloop)
+#		while True:
+#			print("wait")
+#			lib_pulseaudio.pa_threaded_mainloop_wait(self._mainloop)
+
+	def handler_done(self, who):
+		self.outstanding_handlers -= 1
+		if self.outstanding_handlers == 0:
+			print("handler_done", who)
+			lib_pulseaudio.pa_mainloop_quit(self._mainloop, 4)
+
+	def successfull_kill(self, context, number, userdata):
+		print("client killed", number)
+		self.handler_done("successfull_kill")
+			
+	def context_notify_cb(self, context, _):
+		state = lib_pulseaudio.pa_context_get_state(context)
+
+		if state == lib_pulseaudio.PA_CONTEXT_READY:
+			print("Pulseaudio connection ready...")
+			# Connected to Pulseaudio. Now request that sink_info_cb
+			# be called with information about the available sinks.
+			#           o = pa_context_get_sink_info_list(context, self._sink_info_cb, None)
+			#           pa_operation_unref(o)
+			o = lib_pulseaudio.pa_context_get_client_info_list(context, self._pa_client_info_cb, None)
+			lib_pulseaudio.pa_operation_unref(o)
+
+		elif state == lib_pulseaudio.PA_CONTEXT_FAILED :
+			print( "Connection failed")
+
+		elif state == lib_pulseaudio.PA_CONTEXT_TERMINATED:
+			print( "Connection terminated"		)
+			
+# http://jan.newmarch.name/LinuxSound/Sampled/PulseAudio/palist_clients.c
+	def handle_client(self, context, client, proplist):
+		user = lib_pulseaudio.pa_proplist_gets(proplist, b"application.process.user")
+		if self._user_name.encode('ascii') == user:
+			name = lib_pulseaudio.pa_proplist_gets(proplist, b"application.name")
+			binary = lib_pulseaudio.pa_proplist_gets(proplist, b"application.process.binary").decode('ascii')
+			if binary in ["vlc" , "aplay", 'alsaplayer', "mplayer"]:
+				pid = lib_pulseaudio.pa_proplist_gets(proplist, b"application.process.id")
+				print("kill", binary, pid)
+				kill_process(int(pid))
+			elif binary == "mplayer":
+				print("kill_client", binary)
+				self.outstanding_handlers += 1
+				lib_pulseaudio.pa_context_kill_client(context, client.index, self._successfull_kill_cb, None)
+			else:
+				print("unknown binary", binary)
+		
+	def pa_client_info_cb(self, context, clients, eol, userdata):
+		if eol < 0:
+			if lib_pulseaudio.pa_context_errno(context) == PA_ERR_NOENTITY:
+				return
+			sys("error pa_client_info_cb")
+		if eol == 0:
+			client = clients[0]
+			proplist = client.proplist[0]
+			self.handle_client(context, client, proplist)
+		else:
+			self.handler_done("loop")
+		
+def main():		
+	lc = ListClients()
+
+if __name__ == '__main__':
+    main()
