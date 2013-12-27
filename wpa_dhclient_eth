@@ -1,0 +1,312 @@
+#!/usr/bin/python3
+
+# eth_wpa_supplicant, Stuart Pook
+
+# http://dbus.freedesktop.org/doc/dbus-python/doc/tutorial.html#connecting-to-the-bus
+import optparse
+import subprocess
+import dbus
+import sys
+import tempfile
+import posix
+import datetime
+import signal
+from gi.repository import GLib
+
+#from gi.repository import Gtk
+from dbus.mainloop.glib import DBusGMainLoop
+
+import sys, os, time, atexit, signal
+
+def myname():
+        return os.path.basename(sys.argv[0])
+
+# http://www.jejik.com/articles/2007/02/a_simple_unix_linux_daemon_in_python/
+
+def message_and_exit(signum, frame):
+	os.write(2, "%s: exiting after signal %d at %s" % (myname(), signum, datetime.datetime.now()))
+	sys.stderr.flush()
+	os._exit(1)
+	sys.exit(1)
+
+class Daemon:
+	"""A generic daemon class.
+
+	Usage: subclass the daemon class and override the run() method."""
+
+	def __init__(self, pidfile, log):
+		self.pidfile = pidfile
+		self.log = log
+	
+	def daemonize(self):
+		"""Deamonize class. UNIX double fork mechanism."""
+
+		sys.stdout.flush()
+		sys.stderr.flush()
+		# first fork
+		if os.fork() > 0:
+			# exit first parent
+			os._exit(0) 
+	
+		# decouple from parent environment
+		os.chdir('/') 
+		os.setsid() 
+		os.umask(0) 
+	
+		# do second fork
+		if os.fork() > 0:
+			# exit from second parent
+			os._exit(0) 
+	
+		# redirect standard file descriptors
+		
+		for fd in range(3, posix.sysconf('SC_OPEN_MAX') + 1):
+			if fd != self.log.fileno():
+				try:
+					os.close(fd)
+				except OSError:
+					pass
+
+		si = open(os.devnull, 'r')
+		os.dup2(si.fileno(), sys.stdin.fileno())
+		os.close(si.fileno())
+		
+		os.dup2(self.log.fileno(), sys.stdout.fileno())
+		os.dup2(self.log.fileno(), sys.stderr.fileno())
+#?		os.close(self.log.fileno())
+	
+		# write pidfile
+		atexit.register(self.delpid)
+
+		with open(self.pidfile, 'w+') as f:
+			f.write(str(os.getpid()) + '\n')
+	
+	def delpid(self):
+		os.remove(self.pidfile)
+
+	def start(self):
+		"""Start the daemon."""
+
+		# Check for a pidfile to see if the daemon already runs
+		try:
+			with open(self.pidfile,'r') as pf:
+				pid = int(pf.read().strip())
+		except IOError:
+			pid = None
+	
+		if pid:
+			# should check /proc/$$/exe
+			if self.options.restart:
+				try:
+					os.kill(pid, signal.SIGTERM)
+					if self.options.verbose:
+						print("%s: killed old daemon pid %d" % (myname(), pid))
+					for i in range(10):
+						time.sleep(0.1)
+						os.kill(pid, 0)
+					os.kill(pid, signal.SIGKILL)
+					time.sleep(0.2)
+				except ProcessLookupError:
+					pass
+			else:
+				try:
+					os.kill(pid, 0)
+					message = ": pidfile {0} already exists. Daemon already running?\n"
+					sys.stderr.write(myname() + message.format(self.pidfile))
+					sys.exit(1)
+				except ProcessLookupError:
+					pass
+		
+		# Start the daemon
+		self.daemonize()
+		self.run()
+
+	def stop(self):
+		"""Stop the daemon."""
+
+		# Get the pid from the pidfile
+		try:
+			with open(self.pidfile,'r') as pf:
+				pid = int(pf.read().strip())
+		except IOError:
+			pid = None
+	
+		if not pid:
+			message = "pidfile {0} does not exist. " + \
+					"Daemon not running?\n"
+			sys.stderr.write(message.format(self.pidfile))
+			return # not an error in a restart
+
+		# Try killing the daemon process	
+		try:
+			while 1:
+				os.kill(pid, signal.SIGTERM)
+				time.sleep(0.1)
+		except OSError as err:
+			e = str(err.args)
+			if e.find("No such process") > 0:
+				if os.path.exists(self.pidfile):
+					os.remove(self.pidfile)
+			else:
+				print (str(err.args))
+				sys.exit(1)
+
+	def restart(self):
+		"""Restart the daemon."""
+		self.stop()
+		self.start()
+
+	def run(self):
+		"""You should override this method when you subclass Daemon.
+		
+		It will be called after the process has been daemonized by 
+		start() or restart()."""
+
+
+class Listener:
+	def __init__(self, dbus_loop, options):
+		self.start_time = time.time()
+		self.options = options
+		self.dhcp_process = None
+		system_bus = dbus.SystemBus(mainloop=dbus_loop)
+
+		system_bus.add_signal_receiver(self.handler,dbus_interface="fi.w1.wpa_supplicant1.Interface",
+			signal_name="PropertiesChanged", path="/fi/w1/wpa_supplicant1/Interfaces/1")
+			
+		system_bus.add_signal_receiver(self.interface_up, dbus_interface="it.pook.DBus.interface",
+			signal_name="status", path="/it/pook/netplug/" + options.interface)
+	
+	def interface_up(self, sender=None):
+		if self.options.verbose:
+			print(myname() + ": got interface_up signal", sender)
+		if sender:
+			print("status=", sender)
+
+	def handler(self, sender=None):
+		if self.options.verbose:
+			print(myname() + ": got signal", sender)
+		if sender:
+			if sender["State"] == "completed":
+				auth = sender.get("CurrentAuthMode", "?")
+				if self.start_time:
+					if not self.options.quiet:
+						print("%s: authenticated with %s to state %s after %0.1f seconds" % (myname(), auth, sender["State"], time.time() - self.start_time))
+				if self.dhcp_process:
+					self.dhcp_process.kill()
+					self.dhcp_process.wait()
+
+				cmd = ["dhclient", "-1", "-d"]
+				if self.options.quiet:
+					cmd.append("-q")
+				cmd.append(self.options.interface)
+				if self.options.verbose:
+					print(myname() + ": starting", " ".join(cmd))
+				self.dhcp_process = subprocess.Popen(cmd)
+				if self.options.fork or self.options.verbose:
+					print("%s: pid %d with %s pid %d" % (myname(), os.getpid(), cmd[0], self.dhcp_process.pid))
+				
+	def terminate(self):
+		if self.dhcp_process:
+			self.dhcp_process.terminate()
+				
+	def wait(self):
+		if self.dhcp_process:
+			self.dhcp_process.wait()
+
+# https://git.fedorahosted.org/cgit/firewalld.git/commit/?id=2e1f31657c48731e936fcec547dd5c7da74046a1
+def sigterm(mainloop):
+	mainloop.quit()
+	
+def eth0(options):
+	# wpa_supplicant buffers its stdout if it is not a terminal. It unbuffers when writing to argument of -f.  
+	cmd = ["wpa_supplicant", "-t", "-Dwired", "-c", options.config, "-i" , options.interface , "-u"]
+	if options.fork:
+		cmd.extend(["-f", "/dev/stdout"])
+		wpa_out = subprocess.PIPE
+	else:
+		wpa_out = None
+	if not options.quiet:
+		cmd.append("-d")
+		print(myname() + ": running:", " ".join(cmd))
+		
+	wpa = subprocess.Popen(cmd, stdout=wpa_out)
+	if options.fork and os.fork() == 0:
+		try:
+			while True:
+				buf = os.read(wpa.stdout.fileno(), 10240)
+				if buf is None or len(buf) <= 0:
+					break
+				os.write(1, buf)
+#			while os.sendfile(sys.stdout.fileno(), wpa.stdout.fileno(), 0, 1024 * 1024) > 0:
+#				pass
+			os._exit(0)
+		finally:
+			os._exit(1)
+		
+	if options.fork or options.verbose:
+		print("%s: pid %d with %s pid %d" % (myname(), os.getpid(), cmd[0], wpa.pid))
+		
+
+# http://attminnas.blogspot.fr/2013/03/hi-i-have-made-python-script-that-shows.html
+	loop = GLib.MainLoop()
+	dbus_loop = DBusGMainLoop(set_as_default=True)
+	listener = Listener(dbus_loop, options)
+	GLib.unix_signal_add(GLib.PRIORITY_HIGH, signal.SIGTERM, sigterm, loop)
+	GLib.unix_signal_add(GLib.PRIORITY_HIGH, signal.SIGHUP, sigterm, loop)
+	loop.run()
+	if not options.quiet:
+		print("%s: main loop returned at %s, terminating children" % (myname(), datetime.datetime.now()), file=sys.stderr)
+	wpa.terminate()
+	listener.terminate()
+	wpa.wait()
+	listener.wait()
+	if not options.quiet:
+		print("%s: exit at %s" % (myname(), datetime.datetime.now()), file=sys.stderr)
+	sys.exit(1)
+	
+class Background(Daemon):
+	def __init__(self, log, options):
+		self.options = options
+		super().__init__(os.path.join(options.pidfiledir, options.program_short_name + "_" + options.interface + ".pid"), log)
+		
+	def run(self):
+		eth0(self.options)
+	
+def main():
+	parser = optparse.OptionParser(usage="%prog [--help] [options]")
+	parser.disable_interspersed_args()
+	
+#	rsync_opts = ["--archive", "--one-file-system", "--hard-links", "--inplace", "--delete" ]
+#	parser.add_option("--rsync", default=rsync_opts, action="append", help="extras rsync option [%default]")
+	parser.add_option("-v", "--verbose", action="store_true", help="verbose")
+	parser.add_option("-r", "--restart", action="store_true", help="kill an old daemon if necessary before restarting")
+	parser.add_option("-f", "--fork", action="store_true", help="fork and daemonize")
+	parser.add_option("-q", "--quiet", action="store_true", help="quiet")
+	parser.add_option("-i", "--interface", default="eth0", help="interface [%default]")
+	parser.add_option("-l", "--logfile", default=None, help="name of log file [unique file in $TMP]")
+	parser.add_option("--delete_tmp_log", help="delete the unique file in $TMP on exit (if created)")
+	parser.add_option("--pidfiledir", default="/run", help="pidfile directory [%default]")
+	parser.add_option("--program_short_name", default="eth_wpa", help="short name for tmp file and pid file [%default]")
+	parser.add_option("-c", "--config", default="/home/s.pook/etc/IEEE8021X.wpa", help="wpa configuration file [%default]")
+	
+	(options, args) = parser.parse_args()
+	if len(args):
+		parser.error("no arguments allowed")
+	
+	if options.fork:
+		if options.logfile is None:
+			log = tempfile.NamedTemporaryFile(mode="w", prefix=options.program_short_name + "_" + options.interface, dir="/tmp", suffix=".log", delete=options.delete_tmp_log)
+			os.fchmod(log.fileno(), 0o644)
+			if options.verbose:
+				print(myname() + ": log file:", log.name)
+		else:
+			log = open(options.logfile, "w")
+		print("%s: start %s on %s config %s" % (myname(), datetime.datetime.now(), options.interface, options.config), file=log)
+		log.flush()
+		daemon = Background(log, options)
+		daemon.start()
+	else:
+		eth0(options)
+
+if __name__ == '__main__':
+	main()
