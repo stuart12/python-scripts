@@ -52,7 +52,7 @@ def kooka_mount(options):
 			except FileExistsError as ex:
 				if ex.errno != errno.EEXIST:
 					raise
-			subprocess.check_call(["sshfs", "-o", "uid=%d" % os.getuid(), options.remote, options.mount_point])
+			subprocess.check_call(["sshfs"]+ ["-o", "uid=%d" % os.getuid(), options.remote, options.mount_point] + options.sshfs_options)
 			print(": mounted;", options.mount_point)
 
 def main():	
@@ -65,6 +65,7 @@ def main():
 	parser.add_option("--remote", default=os.environ.get("KOOKAMOUNT", None), help="path to mount [%default]")
 	parser.add_option("--mount_point", default=os.path.join(tempfile.gettempdir(), "sshfs-" + getpass.getuser()), help="path to mount [%default]")
 	parser.add_option("--mounts", default="/proc/mounts", help="system list of current mounts [%default]")
+	parser.add_option("-s", "--sshfs_options", default=[], action="append", help="options for sshfs [%default]")
 	
 	(options, args) = parser.parse_args()
 	
