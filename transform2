@@ -15,12 +15,11 @@
 
 # should remove empty directories
 
-
-
 import os, optparse, sys, subprocess, time
 import errno
 import pipes
 import stat
+import tempfile
 
 class MyError(Exception):
 	pass
@@ -218,6 +217,15 @@ def stat_path(fn, options):
 			raise
 		return None
 
+def lstat_path(fn, options):
+	target_filename = os.path.join(fn)
+	try:
+		return os.lstat(target_filename)
+	except OSError as ex:
+		if ex.errno != errno.ENOENT:
+			raise
+		return None
+
 def execute_if_required(source_basenames, target_filename, match, current, in_root, target_stat, options):
 	source_filenames = []
 	for source_basename in source_basenames:
@@ -229,8 +237,10 @@ def execute_if_required(source_basenames, target_filename, match, current, in_ro
 		
 	for source_stat in source_stats:
 		if (stat.S_IMODE(source_stat.st_mode) & options.file_permissions) != options.file_permissions:
+			if target_stat is not None:
+				unlink(target_filename, options)
 			return []
-	
+		
 	if target_stat is None:
 		return execute(source_filenames, target_filename, match, options)
 	else:
@@ -240,22 +250,22 @@ def execute_if_required(source_basenames, target_filename, match, current, in_ro
 		return []
 	
 def mkdir(fn, options):
-	if options.verbose:
-		print("mkdir", fn)
 	if not options.dryrun:
 		os.mkdir(fn)
+	if options.verbose:
+		print("mkdir", fn)
 		
 def unlink(fn, options):
-	if options.verbose:
-		print("rm", fn)
 	if not options.dryrun:
 		os.unlink(fn)
+	if options.verbose:
+		print("rm", fn)
 		
 def rmdir(fn, options):
-	if options.verbose:
-		print("rmdir", fn)
 	if not options.dryrun:
 		os.rmdir(fn)
+	if options.verbose:
+		print("rmdir", fn)
 
 def handle_existing_directory(target_filename, options):
 	try:
@@ -282,10 +292,10 @@ def remaining_targets(targets, current, out_root, options):
 	if not options.nodelete:
 		for target in targets:
 			path = os.path.join(out_root, current, target)
-			if stat.S_ISDIR(os.lstat(path).st_mode):
-				rmdir(path, options)
-			else:
+			try:
 				unlink(path, options)
+			except IsADirectoryError:
+				rmdir(path, options)
 
 def transformer2(current, in_root, out_root, mapping, allowed_files, allowed_directories, options):
 	tasks = []
@@ -312,13 +322,13 @@ def transformer2(current, in_root, out_root, mapping, allowed_files, allowed_dir
 				if matched:
 					target = base + m[1]
 					target_filename = os.path.join(out_root, current, target)
-					target_stat = stat_path(target_filename, options)
-					if target_stat is not None:
-						try:
-							targets.remove(target)
-						except KeyError:
-							print("KeyError", targets, "target", target, "sources", sources, "source", source)
-							raise
+					if target in targets:
+						targets.remove(target)
+						target_stat = stat_path(target_filename, options)
+						if target_stat is None:
+							unlink(target_filename, options) # remove dead link
+					else:
+						target_stat = None
 					sources -= matched
 					tasks.extend(execute_if_required(matched, target_filename, m, current, in_root, target_stat, options))
 					break
@@ -486,10 +496,17 @@ def main(argv):
 	if len(args) > 2:
 		parser.error("too many arguments")
 
+	if options.test:
+		source_dir_tmp = tempfile.TemporaryDirectory()
+		source_dir = source_dir_tmp.name
+		target_dir_tmp = tempfile.TemporaryDirectory()
+		target_dir = target_dir_tmp.name
+		test_files, test_dirs = create_test_files(source_dir, target_dir, options)
+		
 	if not source_dir:
-		parser.error("must suppy a source directory")
+		parser.error("must supply a source directory")
 	if not target_dir:
-		parser.error("must suppy a target directory")
+		parser.error("must supply a target directory")
 		
 		
 	if options.list:
@@ -505,9 +522,6 @@ def main(argv):
 	
 	if options.verbose:
 		print("using", options.ncpus, "cpus")
-		
-	if options.test:
-		test_files, test_dirs = create_test_files(source_dir, target_dir, options)
 	
 	tasks = transformer2("", source_dir, target_dir, transform, in_files, None, options)
 	execute_tasks(tasks, 0, options)
