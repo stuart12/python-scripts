@@ -1,0 +1,239 @@
+#!/usr/bin/python3
+# btrfs-snapshot-sender Copyright (c) 2014 Stuart Pook (http://www.pook.it/)
+# Use btrfs send to backup from existing snapshots. Can do incremental backups.
+#
+# This program is free software: you can redistribute it and/or modify it under
+# the terms of the GNU General Public License as published by the Free Software
+# Foundation, either version 3 of the License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+# FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+# To use this program just create a file
+# called "/etc/local/btrfs-snapshot-sender.conf" containing:
+'''
+[DEFAULT]
+GPGArgument00 = --recipient
+GPGArgument01 = pattern to find your GPG key
+SnapshotRoot = /disks/data/snapshots
+[music]
+[photos]
+'''
+# This will find the most recent snapshot under /disks/data/snapshots/{music,photos}
+# and back them up using btrfs send and gpg.
+# You will have to read the code to find the other options that can go in the configuration file.
+
+# Watch out for https://patchwork.kernel.org/patch/3258971/
+
+import os
+import sys
+import tempfile
+import subprocess
+import hashlib
+import optparse
+import configparser
+import pipes
+import errno
+import fnmatch
+
+def myname():
+	return os.path.basename(sys.argv[0])
+	
+def verbose(options, *args):
+	if options.verbose:
+		print(myname() + ":", *args, file=sys.stderr)
+	
+def fatal(options, *args):
+	print(myname() + ":", *args, file=sys.stderr)
+	sys.exit(7)
+	
+def flush(f):
+	f.flush()
+	os.fsync(f.fileno())
+	
+def rename(src, dst, options):
+	verbose(options, "mv", src, dst)
+	os.rename(src, dst)
+	
+def scan_snapshot_directory(directory, section, in_use_tag, options):
+	glob = section.get("SnapshotGlob", "[!.]*[!#~]")
+	in_use = None
+	latest = None
+	for entry in os.listdir(directory):
+		if entry.endswith(in_use_tag) and fnmatch.fnmatch(entry[:-len(in_use_tag)], glob):
+			if in_use:
+				fatal(options, "two snapshots are marked as in use (" + in_use_tag + ") in", directory)
+			in_use = entry
+		elif fnmatch.fnmatch(entry, glob):
+			if not latest or entry > latest:
+				latest = entry
+
+	if not latest:
+		fatal(options, "no snapshots in", directory)
+	return latest, in_use
+	
+def print_command(cmd, options):
+	verbose(options, "run", " ".join(pipes.quote(c) for c in cmd))
+	return cmd
+	
+def gpg_command(section, options):
+	gpg_command = section.get("GpgCommand", "gpg --encrypt")
+	gpg = gpg_command.split()
+	for i in range(100):
+		extra = section.get("GPGArgument%02d" % i, None)
+		if extra is not None:
+			gpg.append(extra)
+	return gpg
+
+def start_encryption(input, section, options):
+	gpg = gpg_command(section, options)
+	print_command(gpg, options)
+	return subprocess.Popen(gpg, stdout=subprocess.PIPE, stdin=input), gpg
+	
+def start_full_backup(snapshot, options):
+	cmd = ["btrfs", "send"]
+	if options.btrfs_verbose:
+		cmd.append("-v")
+	cmd.append(snapshot)
+	print_command(cmd, options)
+	return subprocess.Popen(cmd, stdout=subprocess.PIPE), cmd
+	
+def read_write_md5(input, output, options):
+	dumpmd5 = hashlib.md5()
+	while True:
+		buf = input.read(4 * 1024)
+		if len(buf) == 0:
+			break
+		output.write(buf)
+		dumpmd5.update(buf)
+	return dumpmd5.hexdigest()
+	
+def wait_command(p, cmd, options):
+	if p.wait():
+		fatal(options, "failed:", " ".join(pipes.quote(c) for c in cmd))
+		
+def set_filemode(file, section, options):
+	u = section.get("OutputFileMode", None)
+	if u:
+		v = int(u, 8)
+		verbose(options, "fchmod", "0%o" % v)
+		os.fchmod(file.fileno(), v)
+		
+def get_directory(section, options):
+	snapshots_key = "Snapshots"
+	directory = section.get(snapshots_key, None)
+	if directory:
+		return directory
+	snapshotroot_key = "SnapshotRoot"
+	root = section.get(snapshotroot_key, None)
+	if root is None:
+		fatal(options, "a", snapshots_key, "or", snapshotroot_key, "attribute is required for section", section.name)
+	return os.path.join(root, section.name)
+
+def do_backup(section, options):
+	in_use_tag = section.get("InUseTag", ".backup_source")
+	directory = get_directory(section, options)
+	name = section.get("OutputName", section.name)
+	tmpsuffix = section.get("TmpSuffix", ".tmp")
+	md5suffix = section.get("MD5Suffix", ".md5")
+	sendsuffix = section.get("SendOutputSuffix", ".btrfs")
+	always_full = section.getboolean("AlwaysDoFull", False)
+	
+	do_full = True if options.full else always_full
+	latest, in_use = scan_snapshot_directory(directory, section, in_use_tag, options)
+	verbose(options, "in section", section.name, "latest", latest, "inuse", in_use, "do_full", do_full)
+	latest_fname = os.path.join(directory, latest)
+	if do_full or not in_use:
+		backup, backup_command = start_full_backup(latest_fname, options)
+	else:
+		fatal(options, "no incrementals yet", section.name)
+		
+	encryption, encryption_command = start_encryption(backup.stdout, section, options)
+	
+	output_basename = name + sendsuffix
+	output_name = os.path.join(options.output, output_basename)
+	output_tmp_name = output_name + tmpsuffix
+	md5_basnename = name + md5suffix
+	with open(os.path.join(options.output, md5_basnename), "w") as md5_file:
+		with open(output_tmp_name, "wb") as output_tmp:
+			md5 = read_write_md5(encryption.stdout, output_tmp, options)
+			flush(output_tmp)
+			set_filemode(output_tmp, section, options)
+		
+		wait_command(backup, backup_command, options)
+		wait_command(encryption, encryption_command, options)
+		
+		print(md5 + " *" + output_basename, file=md5_file)
+	
+		flush(md5_file)
+		set_filemode(md5_file, section, options)
+
+	if not options.no_update and not always_full:
+		if in_use:
+			in_use_fname = os.path.join(directory, in_use)
+			rename(in_use_fname, in_use_fname[:-len(in_use_tag), options])
+		rename(latest_fname, latest_fname + in_use_tag, options)
+	rename(output_tmp_name, output_name, options)
+	
+	return md5_basnename
+
+def backup(config, sections, options):
+	md5files = []
+	for section_name in config.sections():
+		if len(sections) == 0 or section_name in sections:
+			section = config[section_name]
+			if not section.getboolean("active", True):
+				verbose(options, "skipping", section_name, "as it is flagged as inactive")
+			else:
+				md5files.append(do_backup(section, options))
+		else:
+			verbose(options, "skipping section", section_name, "as not in", sections)
+			
+	if options.check_md5:
+		cmd = [ "md5sum", "--check", "--strict"] + md5files
+		print_command(cmd, options)
+		subprocess.check_call(cmd, cwd=options.output)
+	
+def read_config(options):
+	config = configparser.ConfigParser()
+	with open(options.config) as f:
+		config.read_file(f)
+	dir = options.config_dir
+	if dir:
+		try:
+			entries = os.listdir(dir)
+		except OSError as e:
+			if e.errno != errno.ENOENT:
+				raise
+		else:
+			for f in entries:
+				if f.endswith(options.config_dir_contents_suffix):
+					c = os.path.join(dir, f)
+					verbose(options, "additional config from", c)
+					with open(c) as f:
+						config.read_file(f)
+	return config
+		
+def main():
+	parser = optparse.OptionParser(usage="%prog [options] [--help] [sections]")
+	parser.disable_interspersed_args()
+	parser.add_option("-v", "--verbose", action="store_true", help="verbose")
+	parser.add_option("-n", "--no_update", action="store_true", help="don't update the record of last backup")
+	parser.add_option("--btrfs_verbose", action="store_true", help="give verbose flag to btrfs")
+	parser.add_option("--check_md5", action="store_true", help="check MD5 sums of generated files")
+	parser.add_option("-0", "--full", action="store_true", help="do full backups")
+	parser.add_option("--output", default=".", help="output directory [%default]")
+	parser.add_option("-C", "--config", default="/etc/local/btrfs-snapshot-sender.conf", help="config file [%default]")
+	parser.add_option("--config_dir", default="/etc/local/btrfs-snapshot-sender.d", help="directory of config files [%default]")
+	parser.add_option("--config_dir_contents_suffix", default=".conf", help="suffix for each file in directory of config files [%default]")
+	(options, sections) = parser.parse_args()
+	
+	config = read_config(options)
+	backup(config, frozenset(sections), options)
+
+if __name__ == "__main__":
+	main()
