@@ -162,7 +162,7 @@ def main():
 		with tempfile.NamedTemporaryFile(mode='w', prefix='photo-directory-archive', delete=(not options.keep_MD5)) as md5:
 			do_md5sum(filenames, md5, options)
 			command.append("md5sums.txt=" + md5.name)
-			if options.verbose:
+			if options.verbose > 0:
 				print(command)
 			if options.execute:
 				subprocess.check_call(command)
