@@ -18,6 +18,10 @@ import tempfile
 
 def myname():
 	return os.path.basename(sys.argv[0])
+	
+def fatal(*args):
+	print(myname() + ": fatal:", *args, file=sys.stderr)
+	sys.exit(5)
 
 def get_best_snapshot_with_album(album, snapshots, options):
 	best_set = frozenset()
@@ -96,6 +100,14 @@ def do_md5sum(filenames, tmp, options):
 			if options.verbose > 1:
 				print(v)
 			print(v, file=tmp)
+			
+def line_compare(f1, f2):
+	for l1, l2 in zip(f1, f2):
+		if l1 != l2:
+			fatal("bad file compare", l1.strip(), l2.strip())
+	if l1 != l2:
+		fatal("bad file compare2")
+	
 	
 def main():	
 	parser = optparse.OptionParser(usage="%prog [--help] [options] album ...")
@@ -112,16 +124,32 @@ def main():
 	parser.add_option("--photos", default=os.path.expanduser("~/photos"), help="directory containing albums [%default]")
 	parser.add_option("--photo_suffix", default=".cr2", help="photo suffix [%default]")
 	parser.add_option("--block_size", type='int', default=2048, help="block size for space calculations [%default]")
-	parser.add_option("--dvd_size", type='int', default=4700 * 1000 * 1000, help="DVD size for space calculations [%default]")
-	parser.add_option("-2", "--dual_layer", action="store_const", const=8540 * 1000 * 1000, dest='dvd_size', help="dual layer DVD size for space calculations")
+	parser.add_option("--dvd_size", type='int', help="DVD size for space calculations [%default]")
+	parser.add_option("--cdrom", action="store_true", help="burn a CD-ROM ")
+	parser.add_option("-2", "--dual_layer", action="store_true", help="dual layer DVD size for space calculations")
 	parser.add_option("--rawtherapee_suffix", default=".cr2.pp3", help="rawtherapee suffix [%default]")
 	parser.add_option("--command", default="dvdmake", help="command to create a DVD [%default]")
+	parser.add_option("--md5sum_name", default="md5sums.txt", help="name of md5sums on DVD [%default]")
+	parser.add_option("--mount_point", default="/media/dvd", help="where DVDs are mounted [%default]")
+	parser.add_option("--device", default="/dev/dvd", help="DVD device [%default]")
 
 	(options, args) = parser.parse_args()
 	
 	if not args:
 		parser.error("must have at least on album")
 		
+	if options.cdrom:
+		command = [ "genisoimage", "-quiet", "-J","-R", "-file-mode", "0644", "-dir-mode", "0755", "-new-dir-mode", "0755", "-uid", "0", "-gid", "0"]
+		dvd_size = 680 * 1000 * 1000
+	else:
+		command = [ options.command ]
+		if options.dual_layer:
+			dvd_size = 8540 * 1000 * 1000
+		else:
+			dvd_size = 4700 * 1000 * 1000
+	if options.dvd_size:
+		dvd_size = options.dvd_size
+
 	volid = None
 	if len(args) == 1:
 		volid = args[0]
@@ -132,17 +160,17 @@ def main():
 	
 	snapshots = os.listdir(options.snapshots)
 	snapshots.sort()
-		
-	command = [ options.command, "-V", options.volid, "-graft-points" ]
+
+	command.extend([ "-V", volid, "-graft-points" ])
 	
 	filenames = []
 	
 	used = 0
 	for i in args:
 		sz, names = do_album(i, snapshots, options)
-		if (used + sz) * options.block_size >= options.dvd_size:
+		if (used + sz) * options.block_size >= dvd_size:
 			if used == 0:
-				sys.exit(myname() +": no space for first album: " + i)
+				fatal("no space for first album: " + i)
 			if not options.quiet:
 				print("no more space for", i)
 		else:
@@ -156,16 +184,31 @@ def main():
 	
 	bytes = used * options.block_size
 	if not options.quiet:
-		print(used, "sectors,", bytes, "bytes,", "%.1f %%" % (bytes * 100 / options.dvd_size))
+		print(used, "sectors,", bytes, "bytes,", "%.1f %%" % (bytes * 100 / dvd_size))
 		
 	if options.execute or options.verbose:
-		with tempfile.NamedTemporaryFile(mode='w', prefix='photo-directory-archive', delete=(not options.keep_MD5)) as md5:
+		with tempfile.NamedTemporaryFile(mode='w+', prefix='photo-directory-archive', delete=(not options.keep_MD5)) as md5:
 			do_md5sum(filenames, md5, options)
-			command.append("md5sums.txt=" + md5.name)
+			md5.flush()
+			command.append(options.md5sum_name + "=" + md5.name)
 			if options.verbose > 0:
 				print(command)
 			if options.execute:
-				subprocess.check_call(command)
+				if options.cdrom:
+					geniso = subprocess.Popen(command, stdout=subprocess.PIPE)
+					burner = ["wodim", "-tao", "-"]
+					if subprocess.Popen(burner, stdin=geniso.stdout).wait():
+						fatal(burner[0], "failed")
+					if geniso.wait():
+						fatal(command[0], "failed")
+				else:
+					subprocess.check_call(command)
+				subprocess.check_call(["pmount", "-r", options.device])
+				md5.seek(0)
+				subprocess.check_call(["md5sum", "--quiet", "--strict", "-c", "md5sums.txt"], cwd=options.mount_point)
+				with open(os.path.join(options.mount_point, options.md5sum_name)) as on_dvd:
+					line_compare(md5, on_dvd)
+				subprocess.check_call(["eject", options.device])
 
 if __name__ == "__main__":
 	main()
