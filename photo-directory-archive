@@ -15,6 +15,7 @@
 import os, optparse, sys, errno, subprocess
 import hashlib
 import tempfile
+import time
 
 def myname():
 	return os.path.basename(sys.argv[0])
@@ -102,12 +103,14 @@ def do_md5sum(filenames, tmp, options):
 			print(v, file=tmp)
 			
 def line_compare(f1, f2):
+	n = 0
 	for l1, l2 in zip(f1, f2):
 		if l1 != l2:
 			fatal("bad file compare", l1.strip(), l2.strip())
+		n += 1
 	if l1 != l2:
 		fatal("bad file compare2")
-	
+	return n
 	
 def main():	
 	parser = optparse.OptionParser(usage="%prog [--help] [options] album ...")
@@ -119,7 +122,7 @@ def main():
 	parser.add_option("-q", "--quiet", action="store_true", help="no messages")
 	parser.add_option("-v", "--verbose", action="count", default=0, help="verbosity")
 	parser.add_option("-V", "--volid", help="volume name")
-	parser.add_option("-n", "--dryrun", default=False, action="store_true", help="do not execute")
+	parser.add_option("-c", "--nocheck", action="store_true", help="do not check")
 	parser.add_option("--snapshots", default="/disks/snapshots/photos", help="snapshots [%default]")
 	parser.add_option("--photos", default=os.path.expanduser("~/photos"), help="directory containing albums [%default]")
 	parser.add_option("--photo_suffix", default=".cr2", help="photo suffix [%default]")
@@ -132,6 +135,8 @@ def main():
 	parser.add_option("--md5sum_name", default="md5sums.txt", help="name of md5sums on DVD [%default]")
 	parser.add_option("--mount_point", default="/media/dvd", help="where DVDs are mounted [%default]")
 	parser.add_option("--device", default="/dev/dvd", help="DVD device [%default]")
+	parser.add_option("--mount_sleep", type='float', default=2, help="wait between mount attempts [%default]")
+	parser.add_option("--mount_attempts", type='int', default=9, help="number of mount attempt [%default]")
 
 	(options, args) = parser.parse_args()
 	
@@ -196,18 +201,29 @@ def main():
 			if options.execute:
 				if options.cdrom:
 					geniso = subprocess.Popen(command, stdout=subprocess.PIPE)
-					burner = ["wodim", "-tao", "-"]
+					burner = ["wodim", "-eject", "-tao", "-"]
 					if subprocess.Popen(burner, stdin=geniso.stdout).wait():
 						fatal(burner[0], "failed")
 					if geniso.wait():
 						fatal(command[0], "failed")
 				else:
 					subprocess.check_call(command)
-				subprocess.check_call(["pmount", "-r", options.device])
+					
+				subprocess.check_call(["eject", "-t", options.device])
+				for i in range(options.mount_attempts):
+					time.sleep(options.mount_sleep)
+					if subprocess.call(["pmount",  "-t", "iso9660", "-r", options.device]) == 0:
+						break
+				else:
+					fatal("failed to mount", options.device, "after", options.mount_count, "attempts with a delay of", options.mount_sleep, "seconds")
+				
 				md5.seek(0)
-				subprocess.check_call(["md5sum", "--quiet", "--strict", "-c", "md5sums.txt"], cwd=options.mount_point)
 				with open(os.path.join(options.mount_point, options.md5sum_name)) as on_dvd:
-					line_compare(md5, on_dvd)
+					if line_compare(md5, on_dvd) != len(filenames):
+						fatal("file missing in", options.md5sum_name)
+				if not options.nocheck:
+					print("checking", len(filenames), "files")
+					subprocess.check_call(["md5sum", "--quiet", "--strict", "-c", options.md5sum_name], cwd=options.mount_point)
 				subprocess.check_call(["eject", options.device])
 
 if __name__ == "__main__":
