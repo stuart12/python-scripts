@@ -240,11 +240,71 @@ def read_config(options):
 					with open(c) as f:
 						config.read_file(f)
 	return config
+
+def read_btrfs(entry, stem, options):
+	fencrypted = os.path.join(options.read, entry)
+	with open(fencrypted) as encrypted:
+		return
+		subprocess.check_call(["sudo", "true"])
+		gpg = subprocess.Popen(["gpg"], stdin=encrypted, stdout=subprocess.PIPE)
+		reader = subprocess.Popen(["sudo", "btrfs", "receive", stem], stdin=gpg.stdout)
+		if reader.wait() != 0:
+			sys.exit("btrfs failed for " + stem)
+		if gpg.wait() != 0:
+			sys.exit("gpg failed for " + fencrypted)
+			
+def get_md5_from_file(md5_file):
+	with open(md5_file) as input:
+		line = input.readline()
+		if not line:
+			sys.exit("no MD5 line in " + md5_file)
+		pos = line.find(" *")
+		if pos == -1:
+			sys.exit("no MD5 in " + md5_file)
+		return line[:pos]
+			
+def read_md5(entry, stem, options):
+	md5 = get_md5_from_file(os.path.join(options.read, stem + ".md5"))
+		
+	tmp = entry + ".tmp"
+	dumpmd5 = hashlib.md5()
+	input_file = os.path.join(options.read, entry)
+	with open(input_file, "rb") as input:
+		with open(tmp, "wb") as output:
+			verbose(options, "copying", input_file, "to", tmp)
+			while True:
+				buf = input.read(4 * 1024)
+				if len(buf) == 0:
+					break
+				output.write(buf)
+				dumpmd5.update(buf)
+
+	new_md5 = dumpmd5.hexdigest()
+	if new_md5 != md5:
+		sys.exit("MD5 mismatch for %s (%s != %s)"  % (entry, md5, new_md5))
+		
+	verbose(options, "mv", tmp, entry)
+	os.rename(tmp, entry)
+	
+
+def read(options, sections):
+	snap_tag = "+n.btrfs"
+	full_tag = ".btrfs"
+	for entry in os.listdir(options.read):
+		if entry.endswith(snap_tag):
+			stem = entry[:-len(snap_tag)]
+			if len(sections) == 0 or stem in sections:
+				read_btrfs(entry, stem, options)
+		elif entry.endswith(full_tag):
+			stem = entry[:-len(full_tag)]
+			if len(sections) == 0 or stem in sections:
+				read_md5(entry, stem, options)
 		
 def main():
 	parser = optparse.OptionParser(usage="%prog [options] [--help] [sections]")
 	parser.disable_interspersed_args()
 	parser.add_option("-v", "--verbose", action="store_true", help="verbose")
+	parser.add_option("--read", default=None, help="read snapshots from directory")
 	parser.add_option("-n", "--no_update", action="store_true", help="don't update the record of last backup")
 	parser.add_option("--btrfs_verbose", action="store_true", help="give verbose flag to btrfs")
 	parser.add_option("-5", "--check_md5", action="store_true", help="check MD5 sums of generated files")
@@ -255,8 +315,12 @@ def main():
 	parser.add_option("--config_dir_contents_suffix", default=".conf", help="suffix for each file in directory of config files [%default]")
 	(options, sections) = parser.parse_args()
 	
-	config = read_config(options)
-	backup(config, frozenset(sections), options)
+	if options.read:
+		pass
+		read(options, frozenset(sections))
+	else:
+		config = read_config(options)
+		backup(config, frozenset(sections), options)
 
 if __name__ == "__main__":
 	main()
