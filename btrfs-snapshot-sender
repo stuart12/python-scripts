@@ -37,6 +37,7 @@ import configparser
 import pipes
 import errno
 import fnmatch
+import shutil
 
 def myname():
 	return os.path.basename(sys.argv[0])
@@ -244,14 +245,22 @@ def read_config(options):
 def read_btrfs(entry, stem, options):
 	fencrypted = os.path.join(options.read, entry)
 	with open(fencrypted) as encrypted:
-		return
-		subprocess.check_call(["sudo", "true"])
-		gpg = subprocess.Popen(["gpg"], stdin=encrypted, stdout=subprocess.PIPE)
-		reader = subprocess.Popen(["sudo", "btrfs", "receive", stem], stdin=gpg.stdout)
-		if reader.wait() != 0:
-			sys.exit("btrfs failed for " + stem)
-		if gpg.wait() != 0:
-			sys.exit("gpg failed for " + fencrypted)
+		verbose(options, options.decrypter, fencrypted)
+		if False:
+			subprocess.check_call(["sudo", "true"])
+			gpg = subprocess.Popen([options.decrypter], stdin=encrypted, stdout=subprocess.PIPE)
+			btrfs_cmd = ["sudo", "btrfs", "receive", stem]
+			reader = subprocess.Popen(btrfs_cmd, stdin=gpg.stdout)
+			if reader.wait() != 0:
+				sys.exit(" ".join(btrfs_cmd) + " failed")
+			if gpg.wait() != 0:
+				sys.exit(options.decrypter + " failed for " + fencrypted)
+			
+	snapshots = os.path.join(options.read, stem + ".snapshots")
+	with open(snapshots, "w") as output:
+		cmd = ["sudo", "btrfs", "subvolume", "list", "-uso", stem]
+		verbose(options, " ".join(cmd), ">", snapshots)
+		subprocess.check_call(cmd, stdout=output)
 			
 def get_md5_from_file(md5_file):
 	with open(md5_file) as input:
@@ -264,9 +273,12 @@ def get_md5_from_file(md5_file):
 		return line[:pos]
 			
 def read_md5(entry, stem, options):
-	md5 = get_md5_from_file(os.path.join(options.read, stem + ".md5"))
+	md5_file = os.path.join(options.read, stem + ".md5")
+	md5 = get_md5_from_file(md5_file)
+	
+	new_snapshot = os.path.join(stem, entry)
 		
-	tmp = entry + ".tmp"
+	tmp = new_snapshot + ".tmp"
 	dumpmd5 = hashlib.md5()
 	input_file = os.path.join(options.read, entry)
 	with open(input_file, "rb") as input:
@@ -283,22 +295,24 @@ def read_md5(entry, stem, options):
 	if new_md5 != md5:
 		sys.exit("MD5 mismatch for %s (%s != %s)"  % (entry, md5, new_md5))
 		
-	verbose(options, "mv", tmp, entry)
-	os.rename(tmp, entry)
-	
+	with open(md5_file) as input:
+		new_md5_file = os.path.join(stem, stem + ".md5")
+		with open(new_md5_file, "w") as output:
+			verbose(options, "cp", md5_file, new_md5_file)
+			shutil.copyfileobj(input, output)
+		
+	verbose(options, "mv", tmp, new_snapshot)
+	os.rename(tmp, new_snapshot)
 
 def read(options, sections):
-	snap_tag = "+n.btrfs"
-	full_tag = ".btrfs"
+	tags = [ ("+n.btrfs", read_btrfs), (".btrfs", read_md5) ]
 	for entry in os.listdir(options.read):
-		if entry.endswith(snap_tag):
-			stem = entry[:-len(snap_tag)]
-			if len(sections) == 0 or stem in sections:
-				read_btrfs(entry, stem, options)
-		elif entry.endswith(full_tag):
-			stem = entry[:-len(full_tag)]
-			if len(sections) == 0 or stem in sections:
-				read_md5(entry, stem, options)
+		for tag, func in tags:
+			if entry.endswith(tag):
+				stem = entry[:-len(tag)]
+				if len(sections) == 0 or stem in sections:
+					func(entry, stem, options)
+				break
 		
 def main():
 	parser = optparse.OptionParser(usage="%prog [options] [--help] [sections]")
@@ -313,6 +327,7 @@ def main():
 	parser.add_option("-C", "--config", default="/etc/local/btrfs-snapshot-sender.conf", help="config file [%default]")
 	parser.add_option("--config_dir", default="/etc/local/btrfs-snapshot-sender.d", help="directory of config files [%default]")
 	parser.add_option("--config_dir_contents_suffix", default=".conf", help="suffix for each file in directory of config files [%default]")
+	parser.add_option("--decrypter", default="gpg", help="program to decrypt stdin [%default]")
 	(options, sections) = parser.parse_args()
 	
 	if options.read:
