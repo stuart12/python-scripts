@@ -29,7 +29,6 @@ SnapshotRoot = /disks/data/snapshots
 
 import os
 import sys
-import tempfile
 import subprocess
 import hashlib
 import optparse
@@ -145,6 +144,14 @@ def get_directory(section, options):
 		fatal(options, "a", snapshots_key, "or", snapshotroot_key, "attribute is required for section", section.name)
 	return os.path.join(root, section.name)
 
+def possible_unlink(output_name, options):
+	try:
+		os.unlink(output_name)
+		verbose(options, "removed",  output_name)
+	except FileNotFoundError as ex:
+		if ex.errno != errno.ENOENT:
+			raise
+
 def do_backup(section, options):
 	#setup
 	in_use_tag = section.get("InUseTag", ".backup_source")
@@ -166,8 +173,6 @@ def do_backup(section, options):
 	
 	output_basename = name + stem + section.get("SendOutputSuffix", ".btrfs")
 	output_name = os.path.join(options.output, output_basename)
-	if os.path.exists(output_name):
-		fatal(options, 'output file "' + output_name + '" already exists')
 	
 	# start
 	if do_full:
@@ -183,6 +188,7 @@ def do_backup(section, options):
 	
 	with open(os.path.join(options.output, md5_basename), "w") as md5_file:
 		with open(output_tmp_name, "wb") as output_tmp:
+			possible_unlink(output_name, options)
 			md5 = read_write_md5(encryption.stdout, output_tmp, options)
 			flush(output_tmp)
 			set_filemode(output_tmp, section, options)
@@ -196,7 +202,7 @@ def do_backup(section, options):
 		flush(md5_file)
 		set_filemode(md5_file, section, options)
 
-	if not options.no_update:
+	if not options.no_update and (not section.get("StickySnapshot", False) or not in_use_fname):
 		if in_use_fname:
 			rename(in_use_fname, in_use_fname[:-len(in_use_tag)], options)
 		if not always_full:
