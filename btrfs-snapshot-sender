@@ -13,8 +13,10 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-# To use this program just create a file
-# called "/etc/local/btrfs-snapshot-sender.conf" containing:
+# To use this program create a file on the backup medium called
+# "btrfs-snapshot-sender.tag" containing a short unique tag for the
+# backups on this medium, and a file
+# "/etc/local/btrfs-snapshot-sender.conf" containing:
 '''
 [DEFAULT]
 SnapshotRoot = /disks/data/snapshots
@@ -151,8 +153,116 @@ def possible_unlink(output_name, options):
 	except FileNotFoundError as ex:
 		if ex.errno != errno.ENOENT:
 			raise
+			
+class DoBackup:
+	
+	def _find_latest_snapshot(self, directory):
+		section = self._section
+		glob = section.get("SnapshotGlob", "[!.]*[!#~]")
+		latest = None
+		for entry in os.listdir(directory):
+			fields = entry.split(self._tag_sep)
+			snap_name = fields[0]
+			if fnmatch.fnmatch(snap_name, glob):
+				if not latest or snap_name > latest:
+					latest = entry
+		if not latest:
+			fatal(self._options, "no snapshots in", directory)
+		return latest
+		
+	def _read_snapshots(self):
+		section = self._section
+		snap = None
+		fname = section.name + section.get("SnapListSuffix", ".snapshots")
+		with open(fname) as f:
+			fields = f.readline().strip().split('/')
+			if len(fields) > 0 and (snap is None or fields[-1] > snap):
+				snap = fields[-1]
+		if snap is None:
+			fatal(self._options, "no snapshots listed in", fname)
+		return snap
+	
+	def _read_backup_tag(self):
+		section = self._section
+		tag_file = section.get("TagFile", "btrfs-snapshot-sender.tag")
+		with open(tag_file) as f:
+			tag = f.readline()
+			if len(tag) > 0:
+				return tag
+			fatal(self._options, "first line is empty in", tag_file)
+		fatal(self._options, "empty file", tag_file)
+	
+	def __init__(self, section, options):
+		self._section = section
+		self._options = options
+		self._in_use_tag = self._read_backup_tag()
+		
+		self._tag_sep = section.get("TagSeparator", "@")
+			
+		directory = get_directory(section, options)
+		self._name = section.get("OutputName", section.name)
+		self._always_full = section.getboolean("AlwaysDoFull", False)
+		
+		self._do_full = options.full or self._always_full
+		
+		source_snapshot =  self._find_latest_snapshot(directory)
+		if self._do_full:
+			self._stem = "" if self._always_full else section.get("FullSuffix", "-0")
+		else:
+			self._stem = section.get("IncrementalSuffix", "+n")
+			self._shared_fname = os.path.join(directory, self._read_snapshots())
+		
+		self._latest_fname = os.path.join(directory, source_snapshot)
+		
+		self._output_basename = self._name + self._stem + section.get("SendOutputSuffix", ".btrfs")
+		self._output_name = os.path.join(options.output, self._output_basename)
+		verbose(options, "backup in section", section.name, "from", source_snapshot, "to", self._output_name, "full?", self._do_full)
+		
+	def start(self):
+		section = self._section
+		options = self._options
+		# start
+		if self._do_full:
+			self._backup, self._backup_command = start_full_backup(section, self._latest_fname, options)
+		else:
+			self._backup, self._backup_command = start_incremental_backup(section, self._latest_fname, self._shared_fname, options)
+			
+		self._encryption, self._encryption_command = start_encryption(self._backup, section, options)
+		return self
+		
+	def finish(self):
+		section = self._section
+		options = self._options
+		output_tmp_name = self._output_name + section.get("TmpSuffix", ".tmp")
+		md5_basename = self._name + self._stem + section.get("MD5Suffix", ".md5")
+		
+		with open(os.path.join(options.output, md5_basename), "w") as md5_file:
+			with open(output_tmp_name, "wb") as output_tmp:
+				possible_unlink(self._output_name, options) # need to push this into read_write_md5
+				md5 = read_write_md5(self._encryption.stdout, output_tmp, options)
+				flush(output_tmp)
+				set_filemode(output_tmp, section, options)
+			
+			wait_command(self._backup, self._backup_command, options)
+			if self._encryption_command:
+				wait_command(self._encryption, self._encryption_command, options)
+			
+			print(md5 + " *" + self._output_basename, file=md5_file)
+		
+			flush(md5_file)
+			set_filemode(md5_file, section, options)
+
+		if not options.no_update and not self._always_full:
+			rename(self._latest_fname, self._latest_fname + self._tag_sep + self._in_use_tag, options)
+		rename(output_tmp_name, self._output_name, options)
+		
+		return md5_basename
+		
+	def go(self):
+		return self.start().finish()
 
 def do_backup(section, options):
+	return DoBackup(section, options).go()
 	#setup
 	in_use_tag = section.get("InUseTag", ".backup_source")
 	directory = get_directory(section, options)
@@ -179,7 +289,7 @@ def do_backup(section, options):
 		backup, backup_command = start_full_backup(section, latest_fname, options)
 	else:
 		backup, backup_command = start_incremental_backup(section, latest_fname, in_use_fname, options)
-		
+
 	encryption, encryption_command = start_encryption(backup, section, options)
 	
 	#finish
@@ -252,7 +362,7 @@ def read_btrfs(entry, stem, options):
 	fencrypted = os.path.join(options.read, entry)
 	with open(fencrypted) as encrypted:
 		verbose(options, options.decrypter, fencrypted)
-		if False:
+		if not options.list_snapshots_only:
 			subprocess.check_call(["sudo", "true"])
 			gpg = subprocess.Popen([options.decrypter], stdin=encrypted, stdout=subprocess.PIPE)
 			btrfs_cmd = ["sudo", "btrfs", "receive", stem]
@@ -334,6 +444,7 @@ def main():
 	parser.add_option("--config_dir", default="/etc/local/btrfs-snapshot-sender.d", help="directory of config files [%default]")
 	parser.add_option("--config_dir_contents_suffix", default=".conf", help="suffix for each file in directory of config files [%default]")
 	parser.add_option("--decrypter", default="gpg", help="program to decrypt stdin [%default]")
+	parser.add_option("--list_snapshots_only", action="store_true", help="don't read backups, just list current snapshots")
 	(options, sections) = parser.parse_args()
 	
 	if options.read:
