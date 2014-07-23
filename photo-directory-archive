@@ -63,14 +63,24 @@ def getsize(path, options):
 	r = (sz + options.block_size - 1) // options.block_size
 	#print (path, sz, r)
 	return r
+	
+def do_album_jpegs(album, options):
+	dir = os.path.join(options.jpgs, album)
+	where = album + "/" + (options.jpg_directory if options.jpg_directory else os.path.basename(options.jpgs)) + "/"
+	files = []
+	for file in os.listdir(dir):
+		if file.endswith(options.jpg_suffix):
+			files.append([where + file, os.path.join(dir, file)])
+	return files
 
 def do_album(album, snapshots, options):
 	snapshot, photos  = get_best_snapshot_with_album(album, snapshots, options)
 	
-	files = []
+	files = do_album_jpegs(album, options)
 	
+	raw_dir = album + "/" + options.raw_directory + "/"
 	for file in photos:
-		files.append([album + "/" + file, os.path.join(options.snapshots, snapshot, album, file)])
+		files.append([raw_dir + file, os.path.join(options.snapshots, snapshot, album, file)])
 	
 	current_dir = os.path.join(options.photos, album)
 	for file in os.listdir(current_dir):
@@ -80,7 +90,7 @@ def do_album(album, snapshots, options):
 		elif file.endswith(options.rawtherapee_suffix):
 			if not options.force:
 				assert file[0:-len(options.rawtherapee_suffix)] + options.photo_suffix in photos, "pp3 " + file + " not in snapshot " + snapshot + " for " + album
-			files.append([album + "/" + file, os.path.join(current_dir, file)])
+			files.append([raw_dir + file, os.path.join(current_dir, file)])
 
 	sz = 0
 	for file in files:
@@ -112,6 +122,9 @@ def line_compare(f1, f2):
 		fatal("bad file compare2")
 	return n
 	
+def check_call(cmd):
+	if subprocess.call(cmd) != 0:
+		fatal(cmd[0], "failed")
 def main():	
 	parser = optparse.OptionParser(usage="%prog [--help] [options] album ...")
 	parser.disable_interspersed_args()
@@ -124,10 +137,14 @@ def main():
 	parser.add_option("-V", "--volid", help="volume name")
 	parser.add_option("-c", "--nocheck", action="store_true", help="do not check")
 	parser.add_option("--snapshots", default="/disks/snapshots/photos", help="snapshots [%default]")
+	parser.add_option("--jpgs", default="/disks/ws/stuart/converted-photos/2560x2560-90", help="directory containing albums in jpeg format [%default]")
+	parser.add_option("--raw_directory", default="raw", help="subdirectory created for cr2 files in each album [%default]")
+	parser.add_option("--jpg_directory", default=None, help="subdirectory created for jpg files in each album [%default]")
 	parser.add_option("--photos", default=os.path.expanduser("~/photos"), help="directory containing albums [%default]")
-	parser.add_option("--photo_suffix", default=".cr2", help="photo suffix [%default]")
-	parser.add_option("--block_size", type='int', default=2048, help="block size for space calculations [%default]")
-	parser.add_option("--dvd_size", type='int', help="DVD size for space calculations [%default]")
+	parser.add_option("--photo_suffix", default=".cr2", help="photo raw file suffix [%default]")
+	parser.add_option("--jpg_suffix", default=".jpg", help="photo jpg file suffix [%default]")
+	parser.add_option("--block_size", type='int', metavar="BYTES", default=2048, help="block size for space calculations [%default]")
+	parser.add_option("--dvd_size", type='int', metavar="BYTES", help="DVD size for space calculations [%default]")
 	parser.add_option("--cdrom", action="store_true", help="burn a CD-ROM ")
 	parser.add_option("-2", "--dual_layer", action="store_true", help="dual layer DVD size for space calculations")
 	parser.add_option("--rawtherapee_suffix", default=".cr2.pp3", help="rawtherapee suffix [%default]")
@@ -135,16 +152,22 @@ def main():
 	parser.add_option("--md5sum_name", default="md5sums.txt", help="name of md5sums on DVD [%default]")
 	parser.add_option("--mount_point", default="/media/dvd", help="where DVDs are mounted [%default]")
 	parser.add_option("--device", default="/dev/dvd", help="DVD device [%default]")
-	parser.add_option("--mount_sleep", type='float', default=2, help="wait between mount attempts [%default]")
-	parser.add_option("--mount_attempts", type='int', default=9, help="number of mount attempt [%default]")
+	parser.add_option("--image", default=None, metavar="FILENAME", help="create image in an file [%default]")
+	parser.add_option("--mount_sleep", type='float', metavar="SECONDS", default=2.1, help="wait between mount attempts [%default]")
+	parser.add_option("--mount_attempts", type='int', default=9, help="number of mount attempts [%default]")
 
 	(options, args) = parser.parse_args()
 	
 	if not args:
-		parser.error("must have at least on album")
+		parser.error("must have at least one album")
 		
-	if options.cdrom:
-		command = [ "genisoimage", "-quiet", "-J","-R", "-file-mode", "0644", "-dir-mode", "0755", "-new-dir-mode", "0755", "-uid", "0", "-gid", "0"]
+	cdrom_cmd = [ "genisoimage", "-quiet", "-J","-R", "-file-mode", "0644", "-dir-mode", "0755", "-new-dir-mode", "0755", "-uid", "0", "-gid", "0"]
+		
+	if options.image:
+		command = cdrom_cmd + [ "-o", options.image ]
+		dvd_size = 4700 * 1000 * 1000
+	elif options.cdrom:
+		command = cdrom_cmd
 		dvd_size = 680 * 1000 * 1000
 	else:
 		command = [ options.command ]
@@ -191,14 +214,16 @@ def main():
 	if not options.quiet:
 		print(used, "sectors,", bytes, "bytes,", "%.1f %%" % (bytes * 100 / dvd_size))
 		
-	if options.execute or options.verbose:
+	if options.execute or options.verbose or options.image:
 		with tempfile.NamedTemporaryFile(mode='w+', prefix='photo-directory-archive', delete=(not options.keep_MD5)) as md5:
 			do_md5sum(filenames, md5, options)
 			md5.flush()
 			command.append(options.md5sum_name + "=" + md5.name)
 			if options.verbose > 0:
 				print(command)
-			if options.execute:
+			if options.image:
+				check_call(command)
+			elif options.execute:
 				if options.cdrom:
 					geniso = subprocess.Popen(command, stdout=subprocess.PIPE)
 					burner = ["wodim", "-eject", "-tao", "-"]
@@ -207,7 +232,7 @@ def main():
 					if geniso.wait():
 						fatal(command[0], "failed")
 				else:
-					subprocess.check_call(command)
+					check_call(command)
 					
 				subprocess.check_call(["eject", "-t", options.device])
 				for i in range(options.mount_attempts):
