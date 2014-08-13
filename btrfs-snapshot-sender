@@ -39,6 +39,8 @@ import pipes
 import errno
 import fnmatch
 import shutil
+import multiprocessing
+import functools
 
 def myname():
 	return os.path.basename(sys.argv[0])
@@ -59,6 +61,17 @@ def rename(src, dst, options):
 	verbose(options, "mv", src, dst)
 	os.rename(src, dst)
 	
+	
+def run_coroutines(coroutines, options):
+	verbose(options, "start")
+	for coroutine in coroutines:
+		next(coroutine)
+	verbose(options, "wait for")
+	r = []
+	for coroutine in coroutines:
+		r.append(next(coroutine))
+	return r
+
 def scan_snapshot_directory(directory, section, options):
 	glob = section.get("SnapshotGlob", "[!.]*[!#~]")
 	latest = None
@@ -74,6 +87,9 @@ def print_command(cmd, options):
 	verbose(options, "run", " ".join(pipes.quote(c) for c in cmd))
 	return cmd
 	
+def put_result(f, q):
+	q.put(f())
+
 def start_encryption(input, section, options):
 	gpg_command = section.get("Filter", None)
 	if not gpg_command:
@@ -145,6 +161,82 @@ def possible_unlink(output_name, options):
 	except FileNotFoundError as ex:
 		if ex.errno != errno.ENOENT:
 			raise
+		
+def find_latest_snapshot(section, directory, options):
+	glob = section.get("SnapshotGlob", "[!.]*[!#~]")
+	latest = None
+	for entry in os.listdir(directory):
+		if fnmatch.fnmatch(entry, glob):
+			if not latest or entry > latest:
+				latest = entry
+	if not latest:
+		fatal(options, "no snapshots in", directory)
+	return latest
+		
+def read_snapshots(section, options):
+	snap = None
+	fname = section.name + section.get("SnapListSuffix", options.snapshots_suffix)
+	with open(fname) as f:
+		fields = f.readline().strip().split('/')
+		if len(fields) > 0 and (snap is None or fields[-1] > snap):
+			snap = fields[-1]
+	if snap is None:
+		fatal(options, "no snapshots listed in", fname)
+	return snap
+		
+def do_backup_coroutine(section, options):
+	directory = get_directory(section, options)
+	name = section.get("OutputName", section.name)
+	always_full = section.getboolean("AlwaysDoFull", False)
+	
+	do_full = options.full or always_full
+	
+	source_snapshot = find_latest_snapshot(section, directory, options)
+	if do_full:
+		stem = options.full_suffix if always_full else options.first_suffix
+	else:
+		stem = options.next_suffix
+		shared_fname = os.path.join(directory, read_snapshots())
+	
+	latest_fname = os.path.join(directory, source_snapshot)
+	
+	output_basename = name + stem + options.output_suffix
+	output_name = os.path.join(options.output, output_basename)
+	if do_full:
+		backup, backup_command = start_full_backup(section, latest_fname, options)
+	else:
+		backup, backup_command = start_incremental_backup(section, latest_fname, shared_fname, options)
+		
+	encryption, encryption_command = start_encryption(backup, section, options)
+	
+	output_tmp_name = output_name + section.get("TmpSuffix", ".tmp")
+	md5_basename = name + stem + options.md5_suffix
+	
+	with open(os.path.join(options.output, md5_basename), "w") as md5_file:
+		with open(output_tmp_name, "wb") as output_tmp:
+			q = multiprocessing.Queue()
+			worker = multiprocessing.Process(target=put_result, args=(functools.partial(read_write_md5, encryption.stdout, output_tmp, options), q))
+			worker.start()
+			possible_unlink(output_name, options) # need to push this into read_write_md5
+			verbose(options, "running backup in section", section.name, "from", source_snapshot, "to", output_name, "full?", do_full)
+			yield
+			verbose(options, "waiting for backup in section", section.name, "from", source_snapshot, "to", output_name, "full?", do_full)
+			md5 = q.get()
+			worker.join()
+			flush(output_tmp)
+			set_filemode(output_tmp, section, options)
+		
+		wait_command(backup, backup_command, options)
+		if encryption_command:
+			wait_command(encryption, encryption_command, options)
+		
+		print(md5 + " *" + output_basename, file=md5_file)
+	
+		flush(md5_file)
+		set_filemode(md5_file, section, options)
+
+	rename(output_tmp_name, output_name, options)
+	yield md5_basename
 			
 class DoBackup:
 	
@@ -239,6 +331,26 @@ def do_backup(section, options):
 	return DoBackup(section, options).go()
 
 def backup(config, sections, options):
+	coroutines = []
+	for section_name in config.sections():
+		if len(sections) == 0 or section_name in sections:
+			section = config[section_name]
+			if not section.getboolean("active", True):
+				verbose(options, "skipping", section_name, "as it is flagged as inactive")
+			else:
+				coroutines.append(do_backup_coroutine(section, options))
+		else:
+			verbose(options, "skipping section", section_name, "as not in", sections)
+			
+	md5files = run_coroutines(coroutines, options)
+
+	if options.check_md5:
+		cmd = [ "md5sum", "--check", "--strict", "--quiet"] + md5files
+		print_command(cmd, options)
+		subprocess.check_call(cmd, cwd=options.output)
+	
+	return
+
 	processes = []
 	for section_name in config.sections():
 		if len(sections) == 0 or section_name in sections:
@@ -279,25 +391,89 @@ def read_config(options):
 						config.read_file(f)
 	return config
 
-def read_btrfs(entry, stem, options):
-	fencrypted = os.path.join(options.read, entry)
-	with open(fencrypted) as encrypted:
-		verbose(options, options.decrypter, fencrypted)
-		if not options.list_snapshots_only:
-			subprocess.check_call(["sudo", "true"])
+def read_btrfs_coroutine(entry, stem, fname, options):
+	snapshot_command = ["sudo", "/bin/sh", "-c", "cat && btrfs subvolume list -uso " + stem]
+	snapshot_lister = subprocess.Popen(snapshot_command, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+	
+	if options.list_snapshots_only:
+		yield
+	else:
+		fencrypted = os.path.join(options.read, entry)
+		with open(fencrypted) as encrypted:
+			verbose(options, options.decrypter, fencrypted)
 			gpg = subprocess.Popen([options.decrypter], stdin=encrypted, stdout=subprocess.PIPE)
-			btrfs_cmd = ["sudo", "btrfs", "receive", stem]
-			reader = subprocess.Popen(btrfs_cmd, stdin=gpg.stdout)
-			if reader.wait() != 0:
-				sys.exit(" ".join(btrfs_cmd) + " failed")
-			if gpg.wait() != 0:
-				sys.exit(options.decrypter + " failed for " + fencrypted)
+		decrypted = gpg.stdout.read(options.blocking)
+		btrfs_cmd = ["sudo", "btrfs", "receive", stem]
+		verbose(options, " ".join(btrfs_cmd))
+		receive = subprocess.Popen(btrfs_cmd, stdin=subprocess.PIPE)
+		receive.stdin.write(decrypted)
+		worker = multiprocessing.Process(target=shutil.copyfileobj, args=(gpg.stdout, receive.stdin, options.blocking))
+		worker.start()
+	
+		yield
+	
+		verbose(options, "waiting for", " ".join(btrfs_cmd))
+		worker.join()
+		if gpg.wait() != 0:
+			sys.exit(options.decrypter + " failed for " + fencrypted)
+		if receive.wait() != 0:
+			sys.exit(" ".join(self.btrfs_cmd) + " failed for " + fencrypted)
+		verbose(options, "have", " ".join(btrfs_cmd))
 			
+	snapshot_lister.stdin.close()	
 	snapshots = os.path.join(options.read, stem + options.snapshots_suffix)
-	with open(snapshots, "w") as output:
-		cmd = ["sudo", "btrfs", "subvolume", "list", "-uso", stem]
-		verbose(options, " ".join(cmd), ">", snapshots)
-		subprocess.check_call(cmd, stdout=output)
+	with open(snapshots, "wb") as output:
+		shutil.copyfileobj(snapshot_lister.stdout, output)
+	if snapshot_lister.wait() != 0:
+		fatal(options, " ".join(snapshot_command), "failed")
+	verbose(options, " ".join(snapshot_command), ">", snapshots)
+	
+	yield
+
+class ReadBtrfs:
+	def __init__(self, entry, stem, fname, options):
+		self._entry = entry
+		self._stem = stem
+		self._options = options
+		self._fencrypted = os.path.join(options.read, entry)
+		self._coroutine = read_md5_coroutine(entry, stem, fname, options)
+		
+	def start(self):
+		subprocess.check_call(["sudo", "true"])
+		if not self._options.list_snapshots_only:
+			with open(self._fencrypted) as encrypted:
+				verbose(self._options, self._options.decrypter, self._fencrypted)
+				self._gpg = subprocess.Popen([self._options.decrypter], stdin=encrypted, stdout=subprocess.PIPE)
+			decrypted = self._gpg.stdout.read(self._options.blocking)
+			self._btrfs_cmd = ["sudo", "btrfs", "receive", self._stem]
+			self._receive = subprocess.Popen(self._btrfs_cmd, stdin=subprocess.PIPE)
+			self._receive.stdin.write(decrypted)
+			self._worker = multiprocessing.Process(target=shutil.copyfileobj, args=(self._gpg.stdout, self._receive.stdin, self._options.blocking))
+			self._worker.start()
+			
+		self._snapshot_command = ["sudo", "/bin/sh", "-c", "cat && btrfs subvolume list -uso " + self._stem]
+		self._snapshot_lister = subprocess.Popen(self._snapshot_command, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+			
+		return self
+				
+	def finish(self):
+		if not self._options.list_snapshots_only:
+			self._worker.join()
+			if self._receive.wait() != 0:
+				sys.exit(" ".join(self.btrfs_cmd) + " failed for " + self._fencrypted)
+			if self._gpg.wait() != 0:
+				sys.exit(self._options.decrypter + " failed for " + self._fencrypted)
+				
+		self._snapshot_lister.stdin.close()	
+		snapshots = os.path.join(self._options.read, self._stem + self._options.snapshots_suffix)
+		with open(snapshots, "wb") as output:
+			shutil.copyfileobj(self._snapshot_lister.stdout, output)
+		if self._snapshot_lister.wait() != 0:
+			fatal(self._options, " ".join(self._snapshot_command), "failed")
+		verbose(self._options, " ".join(self._snapshot_command), ">", snapshots)
+
+def read_btrfs(entry, stem, fname, options):
+	return ReadBtrfs(entry, stem, fname, options).start()
 
 def get_md5_from_file(md5_file):
 	with open(md5_file) as input:
@@ -308,9 +484,109 @@ def get_md5_from_file(md5_file):
 		if pos == -1:
 			sys.exit("no MD5 in " + md5_file)
 		return line[:pos]
+	
+def copy_and_md5sum(src, dst, options):
+	dumpmd5 = hashlib.md5()
+
+	while True:
+		buf = src.read(options.blocking)
+		if len(buf) == 0:
+			break
+		dst.write(buf)
+		dumpmd5.update(buf)
+	
+	return dumpmd5.hexdigest()
+
+def read_md5_coroutine(entry, stem, fname, options):
+	do_copy = not options.do_not_copy
+	
+	md5_file = os.path.join(options.read, fname + options.md5_suffix)
+	md5 = get_md5_from_file(md5_file)
+	
+	new_snapshot = os.path.join(stem, entry)
+		
+	if do_copy:
+		tmp = new_snapshot + ".tmp"
+	else:
+		tmp = "/dev/null"
+		
+	input_file = os.path.join(options.read, entry)
+	with open(input_file, "rb") as input:
+		with open(tmp, "wb") as output:
+			q = multiprocessing.Queue()
+			worker = multiprocessing.Process(target=put_result, args=(functools.partial(copy_and_md5sum, input, output, options), q))
+			worker.start()
+			verbose(options, "copy", input_file, "to", tmp)
+			yield
+			verbose(options, "waiting for copy result", input_file, "to", tmp)
+			new_md5 = q.get()
+			verbose(options, "have copy result", input_file, "to", tmp)
+			worker.join()
+
+	if new_md5 != md5:
+		sys.exit("MD5 mismatch for %s (%s != %s)"  % (entry, md5, new_md5))
+		
+	if do_copy:
+		with open(md5_file) as input:
+			new_md5_file = os.path.join(stem, fname + options.md5_suffix)
+			with open(new_md5_file, "w") as output:
+				verbose(options, "cp", md5_file, new_md5_file)
+				shutil.copyfileobj(input, output)
 			
-def read_md5(entry, stem, options):
-	md5_file = os.path.join(options.read, stem + options.md5_suffix)
+		verbose(options, "mv", tmp, new_snapshot)
+		os.rename(tmp, new_snapshot)
+		verbose(options, "finished copying", input_file, "to", tmp)
+		
+	yield
+
+class ReadMD5:
+	def __init__(self, entry, stem, fname, options):
+		self._coroutine = read_md5_coroutine(entry, stem, fname, options)
+		self._options = options
+		
+	def start(self):
+		verbose(self._options, "ReadMD5", "before 1st next")
+		next(self._coroutine)
+		verbose(self._options, "ReadMD5", "after 1st next")
+		return self
+	
+	def finish(self):
+		verbose(self._options, "ReadMD5", "before 2nd next")
+		next(self._coroutine)
+		verbose(self._options, "ReadMD5", "after 2nd next")
+		return
+		entry = self._entry
+		stem = self._stem
+		fname = self._fname
+		options = self._options
+		
+		md5_file = os.path.join(options.read, fname + options.md5_suffix)
+		md5 = get_md5_from_file(md5_file)
+		
+		new_snapshot = os.path.join(stem, entry)
+			
+		tmp = new_snapshot + ".tmp"
+		input_file = os.path.join(options.read, entry)
+		with open(input_file, "rb") as input:
+			with open(tmp, "wb") as output:
+				verbose(options, "copying", input_file, "to", tmp)
+				new_md5 = copy_and_md5sum(input, output, options)
+
+		if new_md5 != md5:
+			sys.exit("MD5 mismatch for %s (%s != %s)"  % (entry, md5, new_md5))
+			
+		with open(md5_file) as input:
+			new_md5_file = os.path.join(stem, fname + options.md5_suffix)
+			with open(new_md5_file, "w") as output:
+				verbose(options, "cp", md5_file, new_md5_file)
+				shutil.copyfileobj(input, output)
+			
+		verbose(options, "mv", tmp, new_snapshot)
+		os.rename(tmp, new_snapshot)
+			
+def read_md5(entry, stem, fname, options):
+	return ReadMD5(entry, stem, fname, options).start()
+	md5_file = os.path.join(options.read, fname + options.md5_suffix)
 	md5 = get_md5_from_file(md5_file)
 	
 	new_snapshot = os.path.join(stem, entry)
@@ -343,17 +619,21 @@ def read_md5(entry, stem, options):
 
 def read(options, sections):
 	tags = [
-		(options.first_suffix + options.output_suffix, read_btrfs),
-		(options.next_suffix + options.output_suffix, read_btrfs),
-		(options.full_suffix + options.output_suffix, read_md5)
+		(options.first_suffix + options.output_suffix, read_btrfs_coroutine),
+		(options.next_suffix + options.output_suffix, read_btrfs_coroutine),
+		(options.full_suffix + options.output_suffix, read_md5_coroutine)
 	]
+	coroutines = []
 	for entry in os.listdir(options.read):
 		for tag, func in tags:
 			if entry.endswith(tag):
 				stem = entry[:-len(tag)]
+				fname = entry[:-len(options.output_suffix,)]
 				if len(sections) == 0 or stem in sections:
-					func(entry, stem, options)
+					coroutines.append(func(entry, stem, fname, options))
 				break
+			
+	run_coroutines(coroutines, options)
 		
 def main():
 	parser = optparse.OptionParser(usage="%prog [options] [--help] [sections]")
@@ -370,6 +650,7 @@ def main():
 	parser.add_option("--config_dir_contents_suffix", default=".conf", help="suffix for each file in directory of config files [%default]")
 	parser.add_option("--decrypter", default="gpg", help="program to decrypt stdin [%default]")
 	parser.add_option("--list_snapshots_only", action="store_true", help="don't read backups, just list current snapshots")
+	parser.add_option("--do_not_copy", action="store_true", help="don't copy full backups, just check MD5 sum")
 	parser.add_option("--snapshots_suffix", default=".snapshots", help="file suffix for list of snapshots [%default]")
 	parser.add_option("--first_suffix", default="+0", help="file suffix for base backup for incrementals [%default]")
 	parser.add_option("--next_suffix", default="+n", help="file suffix for next backup for incrementals [%default]")
