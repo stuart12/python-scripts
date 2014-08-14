@@ -304,11 +304,12 @@ def read_btrfs_coroutine(entry, stem, fname, options):
 
 		verbose(options, "waiting for", " ".join(btrfs_cmd))
 		worker.join()
+		receive.stdin.close()
 		if gpg.wait() != 0:
 			sys.exit(options.decrypter + " failed for " + fencrypted)
 		if receive.wait() != 0:
 			sys.exit(" ".join(btrfs_cmd) + " failed for " + fencrypted)
-		verbose(options, "have", " ".join(btrfs_cmd))
+		verbose(options, "have", " ".join(btrfs_cmd), "for", fencrypted)
 			
 	snapshot_lister.stdin.close()	
 	snapshots = os.path.join(options.read, stem + options.snapshots_suffix)
