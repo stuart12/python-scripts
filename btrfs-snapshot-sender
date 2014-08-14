@@ -60,8 +60,7 @@ def flush(f):
 def rename(src, dst, options):
 	verbose(options, "mv", src, dst)
 	os.rename(src, dst)
-	
-	
+
 def run_coroutines(coroutines, options):
 	verbose(options, "start")
 	for coroutine in coroutines:
@@ -122,14 +121,15 @@ def start_incremental_backup(section, latest_fname, in_use_fname, options):
 	print_command(cmd, options)
 	return subprocess.Popen(cmd, stdout=subprocess.PIPE), cmd
 	
-def read_write_md5(input, output, options):
+def read_write_md5(buf, input, output, options):
 	dumpmd5 = hashlib.md5()
 	while True:
+		output.write(buf)
+		dumpmd5.update(buf)
 		buf = input.read(options.blocking)
 		if len(buf) == 0:
 			break
-		output.write(buf)
-		dumpmd5.update(buf)
+	output.flush()
 	return dumpmd5.hexdigest()
 	
 def wait_command(p, cmd, options):
@@ -177,9 +177,10 @@ def read_snapshots(section, options):
 	snap = None
 	fname = section.name + section.get("SnapListSuffix", options.snapshots_suffix)
 	with open(fname) as f:
-		fields = f.readline().strip().split('/')
-		if len(fields) > 0 and (snap is None or fields[-1] > snap):
-			snap = fields[-1]
+		for line in f:
+			fields = line.strip().split('/')
+			if len(fields) > 0 and (snap is None or fields[-1] > snap):
+				snap = fields[-1]
 	if snap is None:
 		fatal(options, "no snapshots listed in", fname)
 	return snap
@@ -196,7 +197,7 @@ def do_backup_coroutine(section, options):
 		stem = options.full_suffix if always_full else options.first_suffix
 	else:
 		stem = options.next_suffix
-		shared_fname = os.path.join(directory, read_snapshots())
+		shared_fname = os.path.join(directory, read_snapshots(section, options))
 	
 	latest_fname = os.path.join(directory, source_snapshot)
 	
@@ -207,7 +208,10 @@ def do_backup_coroutine(section, options):
 	else:
 		backup, backup_command = start_incremental_backup(section, latest_fname, shared_fname, options)
 		
+	# should read a block from backup in case gpg & btrfs both ask questions
+		
 	encryption, encryption_command = start_encryption(backup, section, options)
+	encrypted = encryption.stdout.read(options.blocking)
 	
 	output_tmp_name = output_name + section.get("TmpSuffix", ".tmp")
 	md5_basename = name + stem + options.md5_suffix
@@ -215,9 +219,9 @@ def do_backup_coroutine(section, options):
 	with open(os.path.join(options.output, md5_basename), "w") as md5_file:
 		with open(output_tmp_name, "wb") as output_tmp:
 			q = multiprocessing.Queue()
-			worker = multiprocessing.Process(target=put_result, args=(functools.partial(read_write_md5, encryption.stdout, output_tmp, options), q))
+			worker = multiprocessing.Process(target=put_result, args=(functools.partial(read_write_md5, encrypted, encryption.stdout, output_tmp, options), q))
 			worker.start()
-			possible_unlink(output_name, options) # need to push this into read_write_md5
+			possible_unlink(output_name, options)
 			verbose(options, "running backup in section", section.name, "from", source_snapshot, "to", output_name, "full?", do_full)
 			yield
 			verbose(options, "waiting for backup in section", section.name, "from", source_snapshot, "to", output_name, "full?", do_full)
@@ -237,7 +241,7 @@ def do_backup_coroutine(section, options):
 
 	rename(output_tmp_name, output_name, options)
 	yield md5_basename
-			
+
 class DoBackup:
 	
 	def _find_latest_snapshot(self, directory):
@@ -417,7 +421,7 @@ def read_btrfs_coroutine(entry, stem, fname, options):
 		if gpg.wait() != 0:
 			sys.exit(options.decrypter + " failed for " + fencrypted)
 		if receive.wait() != 0:
-			sys.exit(" ".join(self.btrfs_cmd) + " failed for " + fencrypted)
+			sys.exit(" ".join(btrfs_cmd) + " failed for " + fencrypted)
 		verbose(options, "have", " ".join(btrfs_cmd))
 			
 	snapshot_lister.stdin.close()	
@@ -487,14 +491,13 @@ def get_md5_from_file(md5_file):
 	
 def copy_and_md5sum(src, dst, options):
 	dumpmd5 = hashlib.md5()
-
 	while True:
 		buf = src.read(options.blocking)
 		if len(buf) == 0:
 			break
 		dst.write(buf)
 		dumpmd5.update(buf)
-	
+	dst.flush()
 	return dumpmd5.hexdigest()
 
 def read_md5_coroutine(entry, stem, fname, options):
