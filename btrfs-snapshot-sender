@@ -140,7 +140,7 @@ def set_filemode(file, section, options):
 	u = section.get("OutputFileMode", None)
 	if u:
 		v = int(u, 8)
-		verbose(options, "fchmod", "0%o" % v)
+		verbose(options, "fchmod", "0%o" % v, file.fileno())
 		os.fchmod(file.fileno(), v)
 		
 def get_directory(section, options):
@@ -242,98 +242,6 @@ def do_backup_coroutine(section, options):
 	rename(output_tmp_name, output_name, options)
 	yield md5_basename
 
-class DoBackup:
-	
-	def _find_latest_snapshot(self, directory):
-		section = self._section
-		glob = section.get("SnapshotGlob", "[!.]*[!#~]")
-		latest = None
-		for entry in os.listdir(directory):
-			if fnmatch.fnmatch(entry, glob):
-				if not latest or entry > latest:
-					latest = entry
-		if not latest:
-			fatal(self._options, "no snapshots in", directory)
-		return latest
-		
-	def _read_snapshots(self):
-		section = self._section
-		snap = None
-		fname = section.name + section.get("SnapListSuffix", self._options.snapshots_suffix)
-		with open(fname) as f:
-			fields = f.readline().strip().split('/')
-			if len(fields) > 0 and (snap is None or fields[-1] > snap):
-				snap = fields[-1]
-		if snap is None:
-			fatal(self._options, "no snapshots listed in", fname)
-		return snap
-	
-	def __init__(self, section, options):
-		self._section = section
-		self._options = options
-		
-		directory = get_directory(section, options)
-		self._name = section.get("OutputName", section.name)
-		self._always_full = section.getboolean("AlwaysDoFull", False)
-		
-		self._do_full = options.full or self._always_full
-		
-		source_snapshot =  self._find_latest_snapshot(directory)
-		if self._do_full:
-			self._stem = options.full_suffix if self._always_full else options.first_suffix
-		else:
-			self._stem = options.next_suffix
-			self._shared_fname = os.path.join(directory, self._read_snapshots())
-		
-		self._latest_fname = os.path.join(directory, source_snapshot)
-		
-		self._output_basename = self._name + self._stem + options.output_suffix
-		self._output_name = os.path.join(options.output, self._output_basename)
-		verbose(options, "backup in section", section.name, "from", source_snapshot, "to", self._output_name, "full?", self._do_full)
-		
-	def start(self):
-		section = self._section
-		options = self._options
-		
-		if self._do_full:
-			self._backup, self._backup_command = start_full_backup(section, self._latest_fname, options)
-		else:
-			self._backup, self._backup_command = start_incremental_backup(section, self._latest_fname, self._shared_fname, options)
-			
-		self._encryption, self._encryption_command = start_encryption(self._backup, section, options)
-		return self
-		
-	def finish(self):
-		section = self._section
-		options = self._options
-		output_tmp_name = self._output_name + section.get("TmpSuffix", ".tmp")
-		md5_basename = self._name + self._stem + self._options.md5_suffix
-		
-		with open(os.path.join(options.output, md5_basename), "w") as md5_file:
-			with open(output_tmp_name, "wb") as output_tmp:
-				possible_unlink(self._output_name, options) # need to push this into read_write_md5
-				md5 = read_write_md5(self._encryption.stdout, output_tmp, options)
-				flush(output_tmp)
-				set_filemode(output_tmp, section, options)
-			
-			wait_command(self._backup, self._backup_command, options)
-			if self._encryption_command:
-				wait_command(self._encryption, self._encryption_command, options)
-			
-			print(md5 + " *" + self._output_basename, file=md5_file)
-		
-			flush(md5_file)
-			set_filemode(md5_file, section, options)
-
-		rename(output_tmp_name, self._output_name, options)
-		return md5_basename
-		
-	def go(self):
-		return self.start().finish()
-
-def do_backup(section, options):
-	return DoBackup(section, options).go()
-
 def backup(config, sections, options):
 	coroutines = []
 	for section_name in config.sections():
@@ -347,28 +255,6 @@ def backup(config, sections, options):
 			verbose(options, "skipping section", section_name, "as not in", sections)
 			
 	md5files = run_coroutines(coroutines, options)
-
-	if options.check_md5:
-		cmd = [ "md5sum", "--check", "--strict", "--quiet"] + md5files
-		print_command(cmd, options)
-		subprocess.check_call(cmd, cwd=options.output)
-	
-	return
-
-	processes = []
-	for section_name in config.sections():
-		if len(sections) == 0 or section_name in sections:
-			section = config[section_name]
-			if not section.getboolean("active", True):
-				verbose(options, "skipping", section_name, "as it is flagged as inactive")
-			else:
-				processes.append(DoBackup(section, options).start())
-		else:
-			verbose(options, "skipping section", section_name, "as not in", sections)
-	
-	md5files = []
-	for process in processes:
-		md5files.append(process.finish())
 
 	if options.check_md5:
 		cmd = [ "md5sum", "--check", "--strict", "--quiet"] + md5files
@@ -413,9 +299,9 @@ def read_btrfs_coroutine(entry, stem, fname, options):
 		receive.stdin.write(decrypted)
 		worker = multiprocessing.Process(target=shutil.copyfileobj, args=(gpg.stdout, receive.stdin, options.blocking))
 		worker.start()
-	
+
 		yield
-	
+
 		verbose(options, "waiting for", " ".join(btrfs_cmd))
 		worker.join()
 		if gpg.wait() != 0:
@@ -459,7 +345,7 @@ class ReadBtrfs:
 		self._snapshot_lister = subprocess.Popen(self._snapshot_command, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
 			
 		return self
-				
+			
 	def finish(self):
 		if not self._options.list_snapshots_only:
 			self._worker.join()
