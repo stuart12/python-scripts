@@ -35,13 +35,13 @@ import subprocess
 import hashlib
 import optparse
 import configparser
-import pipes
 import errno
 import fnmatch
 import shutil
 import multiprocessing
 import functools
 import io
+import shlex
 
 def myname():
 	return os.path.basename(sys.argv[0])
@@ -87,7 +87,7 @@ def scan_snapshot_directory(directory, section, options):
 	return latest
 
 def print_command(cmd, options):
-	verbose(options, "run", " ".join(pipes.quote(c) for c in cmd))
+	verbose(options, "run", " ".join(shlex.quote(c) for c in cmd))
 	return cmd
 
 def put_result(f, q):
@@ -95,7 +95,7 @@ def put_result(f, q):
 
 def start_encryption(section, options):
 	gpg_command = section.get("Filter", "/bin/cat")
-	gpg = gpg_command.split()
+	gpg = shlex.split(gpg_command)
 	for i in range(100):
 		extra = section.get("FilterArgument%02d" % i, None)
 		if extra is not None:
@@ -104,7 +104,7 @@ def start_encryption(section, options):
 	return subprocess.Popen(gpg, stdout=subprocess.PIPE, stdin=subprocess.PIPE), gpg
 
 def get_btrfs_command(section, options):
-	return section.get("BtrfsSend", options.sudo + " btrfs send").split()
+	return shlex.split(section.get("BtrfsSend", options.sudo + " btrfs send"))
 
 def start_full_backup(section, snapshot, options):
 	cmd = get_btrfs_command(section, options)
@@ -144,7 +144,7 @@ def read_write(buf, input, output, options):
 
 def wait_check(p, cmd, options, *args):
 	if p.wait():
-		fatal(options, "failed:", " ".join(pipes.quote(c) for c in cmd), *args)
+		fatal(options, "failed:", " ".join(shlex.quote(c) for c in cmd), *args)
 
 def set_filemode(file, section, options):
 	u = section.get("OutputFileMode", None)
@@ -324,7 +324,7 @@ def get_snapshot_from_btrfs_receive(stdout, btrfs_cmd, options):
 	return snapshot
 
 def quote(arg, options):
-	return "'" + arg + "'"
+	return shlex.quote(arg)
 
 def make_waitable_command(cmd, options):
 	return [options.sudo, "sh", "-c", "echo foo && " + cmd]
@@ -343,7 +343,7 @@ def read_btrfs_coroutine(entry, stem, fname, options):
 	else:
 		fencrypted = os.path.join(options.read, entry)
 		verbose(options, options.decrypter, fencrypted)
-		gpg = subprocess.Popen([options.decrypter], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+		gpg = subprocess.Popen([options.decrypter], stdin=subprocess.PIPE, stdout=subprocess.PIPE, shell=True)
 
 		with open(fencrypted, "rb") as encrypted:
 			q = multiprocessing.Queue()
@@ -353,7 +353,7 @@ def read_btrfs_coroutine(entry, stem, fname, options):
 		gpg.stdin.close()
 		decrypted = gpg.stdout.read(options.blocking) # make sure gpg has finished asking any questions
 
-		btrfs_cmd = make_waitable_command("btrfs receive " + quote(os.path.join(options.output, full_stem), options), options)
+		btrfs_cmd = make_waitable_command("btrfs receive " + quote(full_stem, options), options)
 
 		verbose(options, "starting", '"' + " ".join(btrfs_cmd) + '"')
 		receive = subprocess.Popen(btrfs_cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
@@ -468,7 +468,7 @@ def main():
 	parser.add_option("--btrfs_verbose", action="store_true", help="give verbose flag to btrfs")
 	parser.add_option("-5", "--check_md5", action="store_true", help="check MD5 sums of generated files")
 	parser.add_option("-0", "--full", action="store_true", help="do full backups")
-	parser.add_option("--output", default=".", help="output directory [%default]")
+	parser.add_option("--output", default="", help="output directory [%default]")
 	parser.add_option("-C", "--config", default="/etc/local/btrfs-snapshot-sender.conf", help="config file [%default]")
 	parser.add_option("--config_dir", default="/etc/local/btrfs-snapshot-sender.d", help="directory of config files [%default]")
 	parser.add_option("--config_dir_contents_suffix", default=".conf", help="suffix for each file in directory of config files [%default]")
