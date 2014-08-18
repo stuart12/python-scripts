@@ -22,17 +22,23 @@ def strip_end(text, suffix):
 	if not text.endswith(suffix):
 		return text
 	return text[:-len(suffix)]
-	
+
 def myname():
 	return os.path.basename(sys.argv[0])
-  
+
 def main():
-	parser = optparse.OptionParser(usage="usage: %prog [options] inputfile outputfile")
+	parser = optparse.OptionParser(usage="usage: %prog [options] inputfile outputfile | %prog -o outputfile inputfile [inputfile]")
+	parser.add_option("-v", "--verbose", action="store_true", help="verbose messages")
+	parser.add_option("-o", "--output", help="jpeg output file")
 	(options, args) = parser.parse_args()
-	if len(args) != 2:
-		parser.error("must supply 2 arguments")
-		
-	output = args[0]
+	if options.output:
+		output = options.output
+		input = args[0]
+	else:
+		if len(args) != 2:
+			parser.error("must supply 2 arguments")
+		output = args[0]
+		input = strip_end(args[1], ".pp3")
 	root = output.split('/', 1)[0]
 #	grandparent = os.path.split(os.path.dirname(os.path.dirname(output)))[1]
 	try:
@@ -42,8 +48,6 @@ def main():
 	pp3 = os.path.join(os.path.expanduser("~"), "lib", "RawTherapee", "resize", size + ".pp3")
 	with open(pp3) as dummy:
 		pass
-	
-	input = strip_end(args[1], ".pp3")
 
 	command = [ "rawtherapee", "-Y", "-s"]
 	command.append("-j" + quality)
@@ -58,6 +62,6 @@ def main():
 		for line in stderr:
 			print(line, end='', file=sys.stderr)
 		sys.exit(status)
-	
+
 if __name__ == "__main__":
 	main()
