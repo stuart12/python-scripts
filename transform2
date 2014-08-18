@@ -1,6 +1,6 @@
 #!/usr/bin/python3 -u
-# transform Copyright (c) 2012, 2013 Stuart Pook (http://www.pook.it/)
-# transform all the files in a directory using a set of rules
+# transform2 Copyright (c) 2012, 2013, 2014 Stuart Pook (http://www.pook.it/)
+# transform2 all the files in a directory using a set of rules
 #
 # This program is free software: you can redistribute it and/or modify it under
 # the terms of the GNU General Public License as published by the Free Software
@@ -13,41 +13,41 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-# should remove empty directories
-
 import os, optparse, sys, subprocess, time
 import errno
 import pipes
 import stat
 import tempfile
+import shutil
 
 class MyError(Exception):
 	pass
-	
+
 def check_children(running, options):
 	if options.check_children:
 		for child in running:
 			try:
 				with open(os.path.join("/proc", str(child), "status")) as f:
+					f
 					pass
 			except IOError as e:
 				if e.errno != errno.ENOENT:
 					raise
 				print("child", child, "missing", running)
 
-def transform_files(mapping_info, src_dir, src_files, dest_dir):
-	for l in mapping_info:
-		mapping[l[0]] = l[1:]
-		
+#def transform_files(mapping_info, src_dir, src_files, dest_dir):
+#	for l in mapping_info:
+#		mapping[l[0]] = l[1:]
+
 def raiseit(e):
 	raise e
-		
+
 def read_files(dir, suffixes, options, read_all_files):
 	files = []
 	dir = dir.rstrip('/')
 	walk(dir, "", files, suffixes, options, read_all_files)
 	return files
-	
+
 def walk(dir, extra, files, suffixes, options, read_all_files):
 #	print "walk", dir, extra
 	for dirpath, dirnames, filenames in os.walk(os.path.join(dir, extra), onerror=raiseit):
@@ -65,7 +65,7 @@ def walk(dir, extra, files, suffixes, options, read_all_files):
 							e0 = os.path.join(dirpath_decoded[len(dir) + 1:], sub_dir, head)
 							files.append((e0, dtail))
 							break
-						
+
 		readable_names = []
 		for d in dirnames:
 			path = os.path.join(dirpath, d)
@@ -76,10 +76,10 @@ def walk(dir, extra, files, suffixes, options, read_all_files):
 				if options.verbose:
 					print("walk recusive", dir, ex, path)
 				walk(dir, ex, files, suffixes, options, read_all_files)
-			elif read_all_files or (stat_buf.st_mode & options.directory_permissions) == options.directory_permissions: 
+			elif read_all_files or (stat_buf.st_mode & options.directory_permissions) == options.directory_permissions:
 				readable_names.append(d)
 		dirnames[:] = readable_names
-	
+
 def reap(done, ntasks, running, options):
 	assert len(running)
 	while True:
@@ -127,7 +127,7 @@ def start_task(command, outfile, infiles, running,options):
 	proc = subprocess.Popen(c)
 # keep the Popen object in scope otherwise its destructor will wait for the child
 	running[proc.pid] = (otmp, outfile, proc)
-	
+
 class directory_maker():
 	def __init__(self, options):
 		self.options = options
@@ -144,7 +144,7 @@ class directory_maker():
 				if self.options.verbose:
 					print("mkdir -p", dir)
 				os.makedirs(dir)
-	
+
 def execute_tasks(tasks, linked, options):
 	done = 0
 	running = dict()
@@ -156,7 +156,7 @@ def execute_tasks(tasks, linked, options):
 			if len(running) == options.ncpus:
 				reap(done, ntasks, running, options)
 				done += 1
-			
+
 			if options.dryrun:
 				print(task)
 			else:
@@ -183,13 +183,13 @@ def have_all_sources_for_pattern(suffixes, source, sources, options):
 	for suffix in suffixes:
 		if source.endswith(suffix):
 			base = source[0:-len(suffix)]
-			found = set()
+			found = []
 			for s in suffixes:
 				possible = base + s
 				if s != suffix:
 					if possible not in sources:
 						break
-				found.add(possible)
+				found.append(possible)
 			else:
 				return base, found
 	return None, None
@@ -230,17 +230,17 @@ def execute_if_required(source_basenames, target_filename, match, current, in_ro
 	source_filenames = []
 	for source_basename in source_basenames:
 		source_filenames.append(os.path.join(in_root, current, source_basename))
-		
+
 	source_stats = []
 	for source_filename in source_filenames:
 		source_stats.append(os.stat(source_filename))
-		
+
 	for source_stat in source_stats:
 		if (stat.S_IMODE(source_stat.st_mode) & options.file_permissions) != options.file_permissions:
 			if target_stat is not None:
 				unlink(target_filename, options)
 			return []
-		
+
 	if target_stat is None:
 		return execute(source_filenames, target_filename, match, options)
 	else:
@@ -248,24 +248,24 @@ def execute_if_required(source_basenames, target_filename, match, current, in_ro
 			if source_stat[stat.ST_MTIME] > target_stat[stat.ST_MTIME]:
 				return execute(source_filenames, target_filename, match, options)
 		return []
-	
+
 def mkdir(fn, options):
 	if not options.dryrun:
 		os.mkdir(fn)
 	if options.verbose:
 		print("mkdir", fn)
-		
+
 def unlink(fn, options):
 	if not options.dryrun:
 		os.unlink(fn)
 	if options.verbose:
 		print("rm", fn)
-		
+
 def rmdir(fn, options):
 	if not options.dryrun:
-		os.rmdir(fn)
+		shutil.rmtree(fn)
 	if options.verbose:
-		print("rmdir", fn)
+		print("rm -r", fn)
 
 def handle_existing_directory(target_filename, options):
 	try:
@@ -280,7 +280,7 @@ def handle_existing_directory(target_filename, options):
 		if not stat.S_ISDIR(t_stat.st_mode):
 			unlink(target_filename, options)
 			mkdir(target_filename, options)
-			
+
 def want_directory(source_stat, allowed_directories, new_current, options):
 	if allowed_directories and new_current not in allowed_directories:
 		return False
@@ -297,6 +297,15 @@ def remaining_targets(targets, current, out_root, options):
 			except IsADirectoryError:
 				rmdir(path, options)
 
+def is_missing(fn, options):
+	try:
+		fd = os.open(fn, os.O_RDONLY)
+	except FileNotFoundError:
+		return True
+	else:
+		os.close(fd)
+	return False
+
 def transformer2(current, in_root, out_root, mapping, allowed_files, allowed_directories, options):
 	tasks = []
 	targets = set(os.listdir(os.path.join(out_root, current)))
@@ -306,7 +315,7 @@ def transformer2(current, in_root, out_root, mapping, allowed_files, allowed_dir
 		new_current = os.path.join(current, source)
 		source_filename = os.path.join(in_root, current, source)
 		s_stat = os.stat(source_filename)
-		
+
 		if stat.S_ISDIR(s_stat.st_mode):
 			if want_directory(s_stat, allowed_directories, new_current, options):
 				target_filename = os.path.join(out_root, current, source)
@@ -324,24 +333,26 @@ def transformer2(current, in_root, out_root, mapping, allowed_files, allowed_dir
 					target_filename = os.path.join(out_root, current, target)
 					if target in targets:
 						targets.remove(target)
-						target_stat = stat_path(target_filename, options)
-						if target_stat is None:
+						if is_missing(target_filename, options):
 							unlink(target_filename, options) # remove dead link
+							target_stat = None
+						else:
+							target_stat = os.lstat(target_filename)
 					else:
 						target_stat = None
-					sources -= matched
+					sources -= set(matched)
 					tasks.extend(execute_if_required(matched, target_filename, m, current, in_root, target_stat, options))
 					break
 	remaining_targets(targets, current, out_root, options)
 	return tasks
-	
+
 def transformer(in_files, out_files, mapping, options):
 	map = dict([[l[0], l[1:]]  for l in mapping])
 	out_set = frozenset(out_files)
 	directory_cache = directory_maker(options)
 	creating = set()
 	needed = set()
-	
+
 	linked = 0
 	tasks = []
 	for in_file in in_files:
@@ -378,7 +389,7 @@ def transformer(in_files, out_files, mapping, options):
 						os.symlink(source, outfile)
 						if options.verbose:
 							print("ln -s", pipes.quote(source), pipes.quote(outfile))
-						with file(outfile) as f:
+						with open(outfile) as f:
 							pass
 					linked += 1
 
@@ -403,7 +414,7 @@ def count_cpus():
 			if l.lower().startswith("processor"):
 				n += 1
 	return n
-	
+
 def read_list(suffixes):
 	files = []
 	for line in sys.stdin.readlines():
@@ -412,12 +423,12 @@ def read_list(suffixes):
 		if sep[1] in suffixes:
 			files.append(sep)
 	return files
-	
+
 def make_file(fn, options):
 	with open(fn, "w") as f:
 		f.write("foo\n")
 	return fn
-		
+
 def make_dir(dirname, options):
 	try:
 		os.mkdir(dirname, 0o777)
@@ -436,30 +447,30 @@ def create_test_files(source_dir, target_dir, options):
 	dirs.append("d")
 	make_file(os.path.join(dir_name, "y.cr2"), options)
 	results.append(os.path.join("d", "y.jpg"))
-	
+
 	if options.file_permissions:
 		os.chmod(make_file(os.path.join(source_dir, "noperm.cr2"), options), 0o666 & ~options.file_permissions)
-	
+
 	make_file(os.path.join(target_dir, "bad.txt2"), options)
 	make_dir(os.path.join(target_dir, "bad"), options)
 	return (results, dirs)
 
 def main(argv):
 	transform = (
-		([".cr2", ".cr2.pp3"], ".jpg", ["cr2-to-jpeg"]),
-		([".cr2"], ".jpg", ["cr2-to-jpeg"]),
-		([".jpg", ".jpg.pp3"], ".jpg", ["cr2-to-jpeg"]),
-		([".png", ".png.pp3"], ".jpg", ["cr2-to-jpeg"]),
+		([".cr2", ".cr2.pp3"], ".jpg", ["cr2-to-jpeg", "-o"]),
+		([".cr2"], ".jpg", ["cr2-to-jpeg", "-o"]),
+		([".jpg", ".jpg.pp3"], ".jpg", ["cr2-to-jpeg", "-o"]),
+		([".png", ".png.pp3"], ".jpg", ["cr2-to-jpeg", "-o"]),
 		([".pcd"], ".jpg", ["pcd-to-jpeg", "--output"]),
 		([".flac"], ".ogg", ["oggenc", "--quiet", "--quality=5", "-o"]),
 		([".jpg"], ".jpg", ["resize-jpeg", "--output"]),
 		([".png"], ".jpg", ["png-to-jpeg", "--output"])
 	)
 	link = [ ".mp3", ".mov" ]
-	
+
 	parser = optparse.OptionParser(usage="usage: %prog [--help] [options] source_dir target_dir")
 	parser.set_defaults(check_children=False)
-	parser.disable_interspersed_args()	
+	parser.disable_interspersed_args()
 	parser.add_option("-v", "--verbose", action="store_true", help="verbose messages")
 	parser.add_option("-n", "--dryrun", action="store_true", help="dryrun")
 	parser.add_option("-i", "--interactive", action="store_true", help="interactive mode")
@@ -467,7 +478,7 @@ def main(argv):
 	parser.add_option("--touch", action="store_true", help="touch rather than running command")
 	parser.add_option("--nodelete", action="store_true", help="do not delete any files")
 	parser.add_option("-D", "--delete", action="store_true", help="delete old files")
-	parser.add_option("--max_filename_characters", type="int", default=40, metavar="length", help="maximum number characters of the file name to print [%default]")
+	parser.add_option("--max_filename_characters", type="int", default=60, metavar="length", help="maximum number characters of the file name to print [%default]")
 	parser.add_option("-C", "--delete_sleep", action="store_true", help="delete old files after sleep")
 	parser.add_option("-q", "--quiet", action="store_true",help="silence [%default]")
 	parser.add_option("--test", action="store_true",help="create files and test [%default]")
@@ -477,22 +488,22 @@ def main(argv):
 	parser.add_option("-t", "--target_dir", default=None, help="target directory")
 	parser.add_option("-s", "--source_dir", default=None, help="source directory")
 	parser.add_option("--ncpus", default = count_cpus(), type='int', help="number of cpus to use [%default]")
-	parser.add_option("-F", "--file_permissions", default = 0, type='int', help="files must have at least these permissions [%default]")
-	parser.add_option("--directory_permissions", default = 0, type='int', help="directories must have at least these permissions [%default]")
+	parser.add_option("-F", "--file_permissions", default=0o640, type='int', help="files must have at least these permissions [%default]")
+	parser.add_option("--directory_permissions", default=0o750, type='int', help="directories must have at least these permissions [%default]")
 	(options, args) = parser.parse_args()
-			
+
 	if options.ncpus <= 0:
 		print("must have at least 1 cpu", file=sys.stderr)
 		sys.exit(1)
-		
+
 	source_dir = options.source_dir
 	if len(args) >= 1:
 		source_dir = args[0]
-	
+
 	target_dir = options.target_dir
 	if len(args) >= 2:
 		target_dir = args[1]
-		
+
 	if len(args) > 2:
 		parser.error("too many arguments")
 
@@ -502,13 +513,13 @@ def main(argv):
 		target_dir_tmp = tempfile.TemporaryDirectory()
 		target_dir = target_dir_tmp.name
 		test_files, test_dirs = create_test_files(source_dir, target_dir, options)
-		
+
 	if not source_dir:
 		parser.error("must supply a source directory")
 	if not target_dir:
 		parser.error("must supply a target directory")
-		
-		
+
+
 	if options.list:
 		mapping = list(transform)
 		input_suffixes = frozenset([f[0] for f in mapping])
@@ -517,12 +528,12 @@ def main(argv):
 		in_files = read_list(input_suffixes)
 	else:
 		in_files = None
-		
+
 #	out_files = read_files(options.target_dir, set([f[1] for f in mapping]), options, True)
-	
+
 	if options.verbose:
 		print("using", options.ncpus, "cpus")
-	
+
 	tasks = transformer2("", source_dir, target_dir, transform, in_files, None, options)
 	execute_tasks(tasks, 0, options)
 	if options.test:
@@ -534,10 +545,10 @@ def main(argv):
 		print("hit return to exit ", end=' ')
 		sys.stdin.readline()
 	sys.exit(0)
-	
+
 if __name__ == "__main__":
 	try:
 		main(sys.argv)
 	except MyError as e:
-		print(os.path.basename(sys.argv[0]) + ":", e.message.encode('utf-8'), file=sys.stderr)
+		print(os.path.basename(sys.argv[0]) + ":", str(e), file=sys.stderr)
 		sys.exit(1)
