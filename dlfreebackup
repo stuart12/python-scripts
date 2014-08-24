@@ -390,6 +390,8 @@ def do_save(section_name, config, job, options):
 				print("%s: save command: %s: failed %d" % (options.myname, " ".join(quote(self.command)), self.tee.returncode), file=sys.stderr)
 				return 1
 			if len(self.suffix) > 0:
+				with open(self.tmp_file_name, "rb") as f:
+					os.fsync(f.fileno())
 				os.rename(self.tmp_file_name, self.file_name)
 				verbose(options, "mv", self.tmp_file_name, self.file_name)
 			return 0
