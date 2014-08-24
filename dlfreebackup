@@ -57,7 +57,7 @@ def getoutput(args, options):
 def run(args, options):
 	with open(options.devnull) as devnull:
 		run_input(args, devnull, options)
-		
+
 def print_cmd(cmd, options):
 	if options.verbose:
 		print(" ".join(pipes.quote(c) for c in cmd))
@@ -71,7 +71,7 @@ def run_input(args, input, options):
 		r = "[" + " ".join(pipes.quote(c) for c in args) + "] failed " + str(status) + ": " + err.read().decode().rstrip()
 		check(r)
 	err.close()
-	
+
 def make_dump_command(device):
 	return ('dump', "-0", '-L', label(), '-f', '-', '-I', '1', '-q', device)
 
@@ -91,7 +91,7 @@ class Waiter:
 		return self.pid == 0;
 	def dump(self):
 		self.child("dump")
-		print_cmd(self.dump_command, self.options) 
+		print_cmd(self.dump_command, self.options)
 		self.dumper = subprocess.Popen(self.dump_command, close_fds = True, stdout = self.crypter.stdin, stderr = self.dump_stderr)
 		self.crypter.stdin.close()
 		self.dumper.wait()
@@ -102,16 +102,15 @@ class Waiter:
 	def ftp_done(self):
 		self.parent("ftp_done")
 		p,  child_status = os.waitpid(self.pid,  0)
-		self.dump_stderr.seek(0) 
+		self.dump_stderr.seek(0)
 		if child_status != 0:
 			check(str(self.dump_command) +  " failed " + str(child_status) + self.dump_stderr.read())
 		for line in self.crypter.stderr:
 			if line != "gpg: NOTE: trustdb not writable\n":
 				sys.stderr.write(line)
 		self.crypter.stderr.close()
-		self.crypter.wait()
-		if self.crypter.returncode != 0:
-			check((myname + ": gpg of %s failed: %d" % (fs, self.crypter.returncode)))
+		if self.crypter.wait() != 0:
+			check("gpg failed: %d" % (self.crypter.returncode))
 		self.dump_stderr.close()
 	def crypt_output(self):
 		self.parent("crypt_output")
@@ -121,7 +120,7 @@ class Waiter:
 			print("should only call " + what + " in parent", file=sys.stderr)
 	def child(self,  what):
 		if self.pid != 0: print("should only call " + what + " in child", file=sys.stderr)
-		
+
 def snapshot_dump(device, keyfile, gpg, options):
 	if options.verbose:
 		print("snapshot_dump of", "device=", device, "key=", keyfile)
@@ -209,12 +208,12 @@ def latest_backup(config, section_name, gpg, options):
 			latest = d
 	if not latest:
 		sys.exit(options.myname + ": no snapshots found in " + directory)
-	
+
 	snapshot = os.path.join(directory, latest)
 	cmd = ["tar", "--directory", snapshot, "--create", "--one-file-system", "--label", latest]
 	cmd.extend(tar_options.split())
 	cmd.append(".")
-		
+
 	job = Waiter(gpg, cmd, options)
 	if job.is_child():
 		job.dump()
@@ -232,7 +231,7 @@ class MD5:
 		self.dumpmd5.update(buf)
 		self.bytes += len(buf)
 		if self.options.veryverbose:
-			print("just wrote",  len(buf),  "bytes, total",  "%.0f KiB    \r" % (self.bytes / 1024), end=' ') 
+			print("just wrote",  len(buf),  "bytes, total",  "%.0f KiB    \r" % (self.bytes / 1024), end=' ')
 			sys.stdout.flush()
 	def size(self):
 		return self.bytes
@@ -270,7 +269,7 @@ def get_url_from_response(remote_file,  response):
 	if end == start:
 		check("url for " + remote_file + " is empty")
 	return response[start + len(leadin): end]
-	
+
 def gpg_option_for_readonly_home(options):
 	trustdb = os.path.expanduser("~/.gnupg/trustdb.gpg")
 	try:
@@ -287,14 +286,14 @@ def gpg_option_for_readonly_home(options):
 		return []
 	# http://lists.gnupg.org/pipermail/gnupg-users/2006-September/029339.html
 	# http://www.gossamer-threads.com/lists/gnupg/users/54764
-	
+
 def open_ftp_connection(ftphost, ftpuser, ftppasswd, options):
 	if not options.ftp:
 		return None
 	tries = 0
 	while True:
 		try:
-			ftpconnection = ftplib.FTP(ftphost, ftpuser, ftppasswd)             
+			ftpconnection = ftplib.FTP(ftphost, ftpuser, ftppasswd)
 		except EOFError as e:
 			if options.verbose: print("EOFError", e)
 		else:
@@ -305,7 +304,7 @@ def open_ftp_connection(ftphost, ftpuser, ftppasswd, options):
 			sys.exit(options.myname + ": " + str(tries) + " connections to " + ftphost + " failed")
 		time.sleep(20)
 	return ftpconnection
-	
+
 def read_config(options):
 	config = configparser.ConfigParser()
 	with open(options.config) as f:
@@ -340,7 +339,7 @@ class FtpConnectionManager:
 		self.dumpmd5.update(buf)
 		self.bytes += len(buf)
 		if self.options.veryverbose:
-			print("just wrote",  len(buf),  "bytes, total",  "%.0f KiB    \r" % (self.bytes / 1024), end=' ') 
+			print("just wrote",  len(buf),  "bytes, total",  "%.0f KiB    \r" % (self.bytes / 1024), end=' ')
 			sys.stdout.flush()
 	def get(self, host, user, passwd):
 		if self.host != host or self.user != user or self.passwd != passwd or not self.connection:
@@ -354,11 +353,11 @@ class FtpConnectionManager:
 	def __exit__(self, exc_type, exc_value, traceback):
 		if self.connection:
 			self.connection.quit()
-			
+
 def get_value(config, section, key, options):
 	r = config.get(section, key)
 	if not r:
-		sys.exit(options.myname + ": missing value for option " + option + " in section " + section)
+		sys.exit(options.myname + ": missing value for option " + key + " in section " + section)
 	return r
 
 def do_backup(ftp_connection_manager, section_name,	config, gpg_command, options):
@@ -366,17 +365,17 @@ def do_backup(ftp_connection_manager, section_name,	config, gpg_command, options
 	226-Traitements en cours....
 	226-
 	226-Fichier \""""
-		
+
 	dummy_reponse1 = """\" uploade avec succes.
 	226-Il est disponible via http://dl.free.fr/test-url
 	226-
 	226 Vous pouvez a tout moment supprimer ce fichier via: http://dl.free.fr/rm.pl?h=test-url&i=25546302&s=L9ZXaFeTKLPKR7eB9Ygq2OJG4uqSBiow"""
-	
+
 	if not config.getboolean(section_name, "active", fallback="1"):
 		if options.verbose:
 			print("skipping", section_name, "as it is flagged as inactive")
 		return
-	
+
 	gpgkey = get_value(config, section_name, "GpgKey", options)
 	gpg = gpg_command + [gpgkey]
 	logname = get_value(config, section_name, "log", options)
@@ -432,7 +431,7 @@ def main():
 	parser.add_option("--config_dir_suffix", default=".d", help="suffix for directory of config files [%default]")
 	parser.add_option("--config_dir_contents_suffix", default=".conf", help="suffix for each file in directory of config files [%default]")
 	(options, args) = parser.parse_args()
-	
+
 	config = read_config(options)
 
 	gpg_options = ['gpg', '--options', '/dev/null', "--always-trust", "--batch", "--no-tty"]
@@ -440,7 +439,7 @@ def main():
 	gpg_options.extend(['--compress-level', options.gpg_compress_level if options.ftp else "0"])
 	gpg_options.extend(options.gpg_extra_options)
 	gpg_options.extend(['--encrypt', '--recipient'])
-	
+
 	sections = frozenset(args)
 	with FtpConnectionManager(options) as ftp_connection_manager:
 		for section_name in config.sections():
@@ -448,6 +447,6 @@ def main():
 				do_backup(ftp_connection_manager, section_name, config, gpg_options, options)
 			elif options.verbose:
 				print("skipping section", section_name, "as not is", sections)
-	
+
 if __name__ == "__main__":
     main()
