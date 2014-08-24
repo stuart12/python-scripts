@@ -24,8 +24,12 @@ import errno
 import configparser
 import string
 import shlex
+import pipes
 
 # time.strftime('%Y-%m-%dT%H:%M:%S%z')
+
+def quote(s):
+	return pipes.quote(s) # need python 3.3 for shlex.quote
 
 def label():
 	with open("/dev/urandom", "rb") as random:
@@ -52,7 +56,7 @@ def getoutput(args, options):
 		status = subprocess.Popen(args, stdin=devnull, stdout=out, stderr=err, close_fds=True).wait()
 		if status != 0:
 			err.seek(0)
-			r = "[" + " ".join(shlex.quote(c) for c in args)  + "] failed " + str(status) + ": " + err.read().decode().rstrip()
+			r = "[" + " ".join(quote(c) for c in args)  + "] failed " + str(status) + ": " + err.read().decode().rstrip()
 			check(r)
 		err.close()
 		out.seek(0)
@@ -64,7 +68,7 @@ def run(args, options):
 
 def print_cmd(cmd, options):
 	if options.verbose:
-		print(" ".join(shlex.quote(c) for c in cmd))
+		print(" ".join(quote(c) for c in cmd))
 
 def run_input(args, input, options):
 	print_cmd(args, options)
@@ -72,7 +76,7 @@ def run_input(args, input, options):
 	status = subprocess.Popen(args, stdin=input, stdout=err, stderr=subprocess.STDOUT, close_fds=True).wait()
 	if status != 0:
 		err.seek(0)
-		r = "[" + " ".join(shlex.quote(c) for c in args) + "] failed " + str(status) + ": " + err.read().decode().rstrip()
+		r = "[" + " ".join(quote(c) for c in args) + "] failed " + str(status) + ": " + err.read().decode().rstrip()
 		check(r)
 	err.close()
 
@@ -383,7 +387,7 @@ def do_save(section_name, config, job, options):
 			self.tee = subprocess.Popen(self.command, stdin=job.crypt_output(), stdout=subprocess.PIPE)
 		def wait(self):
 			if self.tee.wait(0) != 0:
-				print("%s: save command: %s: failed %d" % (options.myname, " ".join(shlex.quote(self.command)), self.tee.returncode), file=sys.stderr)
+				print("%s: save command: %s: failed %d" % (options.myname, " ".join(quote(self.command)), self.tee.returncode), file=sys.stderr)
 				return 1
 			if len(self.suffix) > 0:
 				os.rename(self.tmp_file_name, self.file_name)
@@ -464,8 +468,6 @@ def main():
 		help="debug after each write to ftp server")
 	parser.add_option("--myname", default=os.path.basename(sys.argv[0]), help="program name for messages [%default]")
 	parser.add_option("--devnull", default="/dev/null", help="file for /dev/null [%default]")
-	parser.add_option("-g", "--gpg_extra_options", action="append", default=[], help="extra options for gpg [%default]")
-	parser.add_option("-c", "--gpg_compress_level", default="9", help="gpg compress level [%default]")
 	parser.add_option("-C", "--config", default="/etc/local/dlfreebackup.conf", help="config file root [%default]")
 	parser.add_option("--config_dir", default="/etc/local/dlfreebackup.d", help="directory of config files [%default]")
 	parser.add_option("--config_dir_contents_suffix", default=".conf", help="suffix for each file in directory of config files [%default]")
