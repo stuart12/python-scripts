@@ -386,7 +386,7 @@ def do_save(section_name, config, job, options):
 			print_cmd(self.command, options)
 			self.tee = subprocess.Popen(self.command, stdin=job.crypt_output(), stdout=subprocess.PIPE)
 		def wait(self):
-			if self.tee.wait(0) != 0:
+			if self.tee.wait() != 0:
 				print("%s: save command: %s: failed %d" % (options.myname, " ".join(quote(self.command)), self.tee.returncode), file=sys.stderr)
 				return 1
 			if len(self.suffix) > 0:
