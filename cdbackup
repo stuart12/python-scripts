@@ -283,7 +283,7 @@ def mkiso(dump, dumpdates, md5sums, dump_name, options):
 	errors = tempfile.TemporaryFile(prefix="cdbackup3")
 	if subprocess.Popen(debug(args), close_fds = True, stdout = iso, stderr = errors).wait():
 		errors.seek(0)
-		sys.exit(errors.read() + myname + ": " + command + " failed")
+		sys.exit(errors.read().encode(sys.getdefaultencoding()) + myname + ": " + command + " failed")
 
 	if isoimage != None:
 		sys.exit()
