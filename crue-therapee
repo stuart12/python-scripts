@@ -43,9 +43,9 @@ def main():
 						pp3.append((file_name, os.fstat(f.fileno()).st_mtime, f.read()))
 
 			r = start_rawtherapee()
-			
+
 			for file in pp3:
-				print("checking", file[0])
+#				print("checking", file[0])
 				try:
 					with open(file[0]) as f:
 						if f.read() == file[2] and os.fstat(f.fileno()).st_mtime > file[1]:
@@ -59,4 +59,4 @@ def main():
 
 if __name__ == "__main__":
 	sys.exit(main())
-	
+
