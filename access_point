@@ -1,0 +1,99 @@
+#!/usr/bin/python3
+
+# acces-point Copyright (c) 2014 Stuart Pook (http://www.pook.it/)
+
+# Use a compatable Wifi card as an access point.
+
+# This program is free software: you can redistribute it and/or modify it under
+# the terms of the GNU General Public License as published by the Free Software
+# Foundation, either version 3 of the License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+# FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+import subprocess
+import sys
+import optparse
+import shlex
+
+def print_cmd(cmd):
+    print(" ".join(map(shlex.quote, cmd)))
+
+def check_call(cmd):
+    print_cmd(cmd)
+    subprocess.check_call(cmd)
+    
+def popen(cmd, **kargs):
+    print_cmd(cmd)
+    return subprocess.Popen(cmd, **kargs)
+    
+def set_address(options, what):
+    check_call(["ip", "addr", what, options.address, "dev", options.wireless])
+
+def set_networkmanager(options, what):
+    check_call(["nmcli", "nm", "wifi", what])
+    
+def set_rfkill(options, what):
+    check_call(["rfkill", what, "wlan"])
+
+def set_link(options, what):
+    check_call(["ip", "link", "set", options.wireless, what])
+    
+def masquerade(options, what):
+    check_call(["iptables", "-t", "nat", "--" + what, "POSTROUTING",
+        "-s", options.address, "-o", options.wired, "-j", "MASQUERADE"])
+
+def access_point(options):
+    #http://askubuntu.com/questions/472794/hostapd-error-nl80211-could-not-configure-driver-mode
+    set_networkmanager(options, "off")
+    set_rfkill(options, "unblock")
+
+    set_address(options, "add")
+    set_link(options, "up")
+#    dhcpd = subprocess.Popen(["dhcpd", "-cf", options.dhcpd_config, options.wireless])
+    dhcpd = popen(["/usr/sbin/dnsmasq", 
+        "--keep-in-foreground", "--interface=" + options.wireless, "--bind-interfaces",
+        "--except-interface", "lo",
+        "--dhcp-range=172.29.0.2,172.29.0.14",
+        "--conf-file=",
+        "--dhcp-authoritative", "--no-daemon", "--log-queries"])
+    hostapd = popen(["hostapd", options.hostapd_config])
+    masquerade(options, "append")
+    with open("/proc/sys/net/ipv4/ip_forward", "w") as f:
+        f.write("1\n")
+        
+    print("hit return to exit")
+    sys.stdin.readline()
+        
+    dhcpd.terminate()
+    hostapd.terminate()
+    hostapd.wait()
+    dhcpd.wait()
+    set_link(options, "down")
+    set_address(options, "del")
+    masquerade(options, "delete")
+    set_networkmanager(options, "on")
+    set_rfkill(options, "block")
+ 
+    return 0
+
+def main():
+    parser = optparse.OptionParser(usage="%prog [--help] [options]")
+    parser.disable_interspersed_args()
+
+    parser.add_option("-v", "--verbose", action="store_true", help="verbose")
+    parser.add_option("--wireless", default="wlan0", help="wireless interface [%default]")
+    parser.add_option("--address", default="172.29.0.1/28", help="wireless address [%default]")
+    parser.add_option("--wired", default="eth0", help="wired interface [%default]")
+    parser.add_option("--dhcpd_config", default="/etc/dhcp/dhcpd-stuart.conf", help="dhcpd config file [%default]")
+    parser.add_option("--hostapd_config", default="/etc/hostapd/hostapd-stuart.conf", help="hostapd config file [%default]")
+    (options, args) = parser.parse_args()
+
+    sys.exit(access_point(options))
+    
+if __name__ == '__main__':
+    main()
