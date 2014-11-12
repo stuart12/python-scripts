@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-# cr2-to-jpeg-rawtherapee Copyright (c) 2012 Stuart Pook (http://www.pook.it/)
+# cr2-to-jpeg-rawtherapee Copyright (c) 2012, 2014 Stuart Pook (http://www.pook.it/)
 # convert a cr2 to jpeg using rawtherapee
 # This program is free software: you can redistribute it and/or modify it under
 # the terms of the GNU General Public License as published by the Free Software
@@ -17,6 +17,7 @@ import sys
 import subprocess
 import tempfile
 import pipes
+import shlex # python 3.3 or later
 
 def strip_end(text, suffix):
 	if not text.endswith(suffix):
@@ -49,12 +50,14 @@ def main():
 	with open(pp3) as dummy:
 		pass
 
-	command = [ "rawtherapee", "-Y", "-s"]
+	command = [ "/usr/bin/rawtherapee", "-Y", "-s"]
 	command.append("-j" + quality)
 	command.extend(["-p", pp3])
 	command.extend(["-o", output])
 	command.extend(["-c", input])
 	stderr = tempfile.TemporaryFile(mode='w+')
+	if options.verbose:
+		print(myname() + ": running", " ".join(map(shlex.quote, command)), file=sys.stderr)
 	status = subprocess.call(command, stdout=open("/dev/null", "w"), stderr=stderr)
 	if status:
 		print(myname()+ ":", "command failed (%d):" % status, " ".join(pipes.quote(c) for c in command), file=sys.stderr)
