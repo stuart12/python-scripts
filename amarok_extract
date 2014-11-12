@@ -62,7 +62,8 @@ def main():
 		query = ("select urls.rpath from statistics, urls where"
 			" statistics.rating >= %s"
 			" and urls.id = statistics.id"
-			" and urls.deviceid = -1")
+#			" and urls.deviceid = -1"
+			)
 		cursor.execute(query, (options.rating, ))
 		for file, in cursor:
 			d = file.decode()
