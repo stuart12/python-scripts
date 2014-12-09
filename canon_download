@@ -23,26 +23,32 @@ import os
 import tempfile, filecmp
 import errno
 
+def verbose(options, *args):
+	if options.verbose:
+		print(*args)
+
 def read_record(options):
 	records = [line.strip() for line in open(options.record)]
 	if options.verbose:
 		print(len(records), "records in", options.record)
 	return records
-	
+
 def get_files(camera, where, dir_prefix, seen, found, options):
 	result = []
-	if options.verbose:
-		print("looking for files in", where,  dir_prefix)
+	verbose(options, "looking for files in", where,  dir_prefix)
 	for f, junk in camera.list_files(where):
-		prefix = "IMG_"
-		if f.startswith(prefix):
+		prefixes = ["IMG_", "MVI_"]
+		prefix = f[0:len(prefixes[0])]
+		if not prefix in prefixes:
+			verbose(options, "skipping", f, "as", prefix, "not in", prefixes)
+		else:
 			dest_base = dir_prefix + "_" + f[len(prefix):].lower()
-			
+
 			if not dest_base in seen:
 				found.append(dest_base)
-				
+
 			dest = os.path.join(options.destination, dest_base)
-				
+
 			if os.path.lexists(dest):
 				if options.check:
 					result.append([where, f, dest, True])
@@ -54,9 +60,9 @@ def get_files(camera, where, dir_prefix, seen, found, options):
 						print("skipping seen", dest_base)
 				else:
 					result.append([where, f, dest, False])
-				
+
 	return result
-	
+
 def look_for_canon(camera, where, seen, found, options):
 	if options.verbose: print("look_for_canon in ", where)
 	jobs = []
@@ -71,7 +77,7 @@ def look_for_canon(camera, where, seen, found, options):
 	if options.verbose:
 		print("look_for_canon:", jobs)
 	return jobs
-			
+
 def download(jobs, camera, options):
 	if not options.quiet:
 		print("download:", len(jobs), "files to download or check")
@@ -97,7 +103,7 @@ def download(jobs, camera, options):
 				with open(tmp) as t:
 					os.fsync(t)
 				os.rename(tmp, dest)
-				
+
 def run(options, args):
 	if len(args) > 0:
 		os.chdir(args[0])
@@ -119,7 +125,7 @@ def run(options, args):
 		with open(options.record, "a") as record:
 			for f in found:
 				record.write(f + "\n")
-	
+
 
 def main():
 	parser = optparse.OptionParser()
@@ -148,7 +154,7 @@ def main():
 			print("OK, return to exit")
 		sys.stdin.readline()
 		sys.exit(r)
-	
+
 
 if __name__ == '__main__':
 	main()
