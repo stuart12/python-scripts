@@ -19,6 +19,10 @@
 # to umount:
 #		sudo umount.crypt /mnt
 
+# need to create archive.luks.md5 and archive.luks.sz (and perhaps archive.sqsh.sz) in options.output
+# need to add these files to FAT partition (to make check.sh work)
+# could also add a timestamp to options.output and copy it to the FAT partition
+
 import os
 import sys
 import subprocess
@@ -458,6 +462,30 @@ def make_file(filename, contents, options):
 		with open(filename, 'w') as v:
 			v.write(contents)
 
+check_sh = """#!/bin/sh
+
+b=$(dirname "$0")
+md5=$(awk '{print $1}' "$b"/archive.luks.md5)
+bytes=$(cat "$b"/archive.luks.sz)
+disk=$(df "$0" | sed -n -e 's@^\(/dev/sd[a-z]\)[0-9].*@\1@p')
+
+status=0
+for partition in ${disk}[2-9]
+do
+	sudo head --bytes=$bytes $partition | 
+		md5sum |
+		grep -q "^$md5" || { echo FAIL on $partition; status=1; }
+done
+exit $status
+"""
+
+check_cdrom_sh = """#!/bin/sh
+b=$(dirname $0)
+md5=$(awk '{print $1}' $b/archive.luks.md5)
+bytes=$(cat $b/archive.luks.sz)
+head --bytes=$bytes /dev/cdrom | md5sum | grep -q "^$md5" || { echo FAIL: bad CDROM; exit 1; }
+"""
+
 def fill_fat(partition, volid, options):
 	call_sudo(options, ["mkfs.fat", "-n", volid.upper(), partition])
 	with tempfile.TemporaryDirectory(suffix='mk-archive-usb-mount') as mountpoint:
@@ -467,6 +495,8 @@ def fill_fat(partition, volid, options):
 				verbose(options, "cp", r, mountpoint)
 			else:
 				shutil.copy(r, mountpoint)
+		make_file(os.path.join(mountpoint, "check.sh"), check_sh, options)
+		make_file(os.path.join(mountpoint, "check_cdrom.sh"), check_cdrom_sh, options)
 		make_file(os.path.join(mountpoint, "volid.txt"), volid + '\n', options)
 		make_file(os.path.join(mountpoint, volid + ".txt"), volid + '\n', options)
 		make_file(os.path.join(mountpoint, "README.txt"),
