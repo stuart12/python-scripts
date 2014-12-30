@@ -67,6 +67,9 @@ def insert(set, value):
 	n = len(set)
 	set.add(value)
 	return n != len(set)
+	
+def icase(s, t):
+	return s.lower() == t.lower()
 
 def format_contact(contact, troff, min_pager, options):
 	if troff:
@@ -104,16 +107,16 @@ def format_contact(contact, troff, min_pager, options):
 	for number in contact.contents.get('tel', []):
 		tag = ''
 		for ntype in number.params['TYPE']:
-			if ntype == 'CELL':
+			if icase(ntype, 'CELL'):
 				tag += 'm'
-			elif ntype == 'HOME':
+			elif icase(ntype,'HOME'):
 				tag += 'h'
-			elif ntype == 'FAX':
+			elif icase(ntype, 'FAX'):
 				tag += options.fax_tag
-			elif ntype == 'WORK':
+			elif icase(ntype, 'WORK'):
 				tag += 'w'
-			elif ntype == 'PAGER':
-				break
+			elif icase(ntype, 'PAGER'):
+				tag += 'p'
 		else:
 			formated_number = format_number(number.value, options)
 			if insert(numbers, formated_number):
@@ -133,9 +136,9 @@ def format_contact(contact, troff, min_pager, options):
 		tag = ''
 		try:
 			for atype in address.params['TYPE']:
-				if atype == 'HOME':
+				if icase(atype, 'HOME'):
 					tag += 'h'
-				elif atype == 'WORK':
+				elif icase(atype,'WORK'):
 					tag += 'w'
 		except KeyError:
 			pass
