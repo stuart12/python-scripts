@@ -1,5 +1,9 @@
 #!/usr/bin/python3
-# incrementally backup a filesystem to a CDROM, Copyright (C) 2013 Stuart Pook, Uses dump(1) so only works with ext2/3/4 filesystems. Dumps are encrypted using gpg.
+# incrementally backup a filesystem to a CDROM, Copyright (C) 2013,2015 Stuart Pook
+# Uses dump(1) so only works with ext2/3/4 filesystems. Dumps are encrypted using gpg.
+#
+# This script is a work in progress!
+#
 # This program is free software: you can redistribute it and/or modify it under
 # the terms of the GNU General Public License as published by the Free Software
 # Foundation, either version 3 of the License, or (at your option) any later
@@ -10,36 +14,23 @@
 # License along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 import os
-import os.path
 import sys
 import tempfile
-import getopt
 import subprocess
 import hashlib
 import datetime
 import shutil
 import time
 import pipes
-
-md5sums_name = 'misc/md5sums.txt'
-dumpdates_name = 'misc/dumpdate.txt'
-me = 'unknown'
-fs = None
-key = None
-dev = None
-backups_fs = None
-backups_dir = None
-gpg_options = ('gpg', '--options', '/dev/null', "--always-trust")
-stuart_gpg_options = ('--no-permission-warning', '--homedir', '/home/stuart/.gnupg')
-cdrecord = "wodim"
-mkisofs = "genisoimage"
+import errno
+import argparse
 
 def find_device_for_fs(fs, mounts = "/proc/mounts"):
 	for line in open(mounts):
 		dev, mount_point, type, flags, d0, d1 = line.split()
 		if mount_point == fs:
 			return dev
-	sys.exit(myname + ": find_device_for_fs: " + fs + " not found in " + mounts)
+	sys.exit("%s: find_device_for_fs: %s not found in %s" % (myname, fs, mounts))
 	return None
 
 def find_fs_for_device(fs, mounts="/proc/mounts"):
@@ -50,64 +41,25 @@ def find_fs_for_device(fs, mounts="/proc/mounts"):
 #	sys.exit(myname + ": find_fs_for_device: " + fs + " not found in " + mounts)
 	return None
 
+md5sums_name = 'misc/md5sums.txt'
+dumpdates_name = 'misc/dumpdate.txt'
+gpg_options = ('gpg', '--options', '/dev/null', "--always-trust")
+stuart_gpg_options = ('--no-permission-warning', '--homedir', os.path.expanduser('~/.gnupg'))
+cdrecord = "wodim"
+mkisofs = "genisoimage"
+
 myname = os.path.basename(sys.argv[0])
-initialize_cd = False
-verbose = False
 do_mount = 1
-isoimage = None
 name_change = False
-minsize = 1600
 multi = '-multi'
-options = [ "cdrecord", "name_change", "last", "minsize=", "backups_fs=", "backups_directory=", "key=", "cdrom=", "fs=", "mount=", "initialize", "verbose", "image=" ]
+#options = [ "cdrecord", "name_change", "last", "minsize=", "backups_fs=", "backups_directory=", "key=", "cdrom=", "fs=", "mount=", "initialize", "verbose", "image=" ]
+
 def usage():
 	sys.exit("usage: " + myname + " " + str(options))
-try:
-	opts, args = getopt.getopt(sys.argv[1:], "v", options)
-except getopt.GetoptError:
-	usage()
-for o, a in opts:
-	if o in ("--initialize"):
-		initialize_cd = True
-	elif o in ("--minsize"):
-		minsize = int(a)
-	elif o in ("--cdrecord"):
-		cdrecord = "cdrecord"
-		mkisofs = "mkisofs"
-	elif o in ("--last"):
-		multi = '-data'
-		minsize = 0
-	elif o in ("--mount"):
-		do_mount = int(a)
-	elif o in ("--fs"):
-		fs = a
-	elif o in ("--image"):
-		isoimage = a
-	elif o in ("--backups_fs"):
-		backups_fs = a
-	elif o in ("--backups_directory"):
-		backups_dir = a
-	elif o in ("--key"):
-		key = a
-	elif o in ("--cdrom"):
-		cdrom = a
-	elif o in ("--verbose", "-v"):
-		verbose = True
-	elif o in ("--name_change"):
-		name_change = True
-	else:
-		usage()
 
-#if len(args): usage()
-
-if cdrom == None:
-	sys.exit(myname + ": must specify the cdrom to backup onto")
-if key == None:
-	sys.exit(myname + ": must specify the key to encrypt with")
-if fs == None:
-	sys.exit(myname + ": must specify the filesystem to backup")
-rcdrom = os.path.join(os.path.dirname(cdrom), os.readlink(cdrom))
-if verbose:
-	print("backups to", rcdrom)
+def verbose(args, *opts):
+	if args.verbosity:
+		print(myname + ":", *opts)
 
 def debug(cmd):
 	if verbose:
@@ -124,14 +76,14 @@ def label():
 		label += chr((r >> 4) + ord('a'))
 	return label
 
-def do_dump(level, dump, dumpdates, md5sums, fs_special):
+def do_dump(level, dump, dumpdates, md5sums, fs_special, args):
 	dump_stderr = tempfile.TemporaryFile(prefix="cdbackup0")
 	dumpdates.flush()
 	dump_options = ('dump', '-L', label(), '-f', '-', '-I', '1', '-q',  '-u')
 	dump_options += '-' + str(level),
 	dump_options += ('-D', dumpdates.name)
 	dump_options += fs_special,
-	gpg_command = gpg_options + ('--encrypt', '--recipient', key, '-z', '9')
+	gpg_command = gpg_options + ('--encrypt', '--recipient', args.key, '-z', '9')
 	dump_stderr
 	dumper = subprocess.Popen(debug(dump_options), close_fds = True, stdout = subprocess.PIPE, stderr = dump_stderr  if not verbose else None)
 	crypter = subprocess.Popen(debug(gpg_command), close_fds = True, stdin = dumper.stdout, stdout = subprocess.PIPE)
@@ -167,15 +119,15 @@ def do_dump(level, dump, dumpdates, md5sums, fs_special):
 
 	md5sums.write(dumpmd5.hexdigest() + "  " + dumpname + '\n')
 
-	save_dump(level, dump, dumpdates, dumpname)
+	save_dump(level, dump, dumpdates, dumpname, args)
 
 	dumpdates.seek(0)
 	md5sums.write(hashlib.md5(dumpdates.read().encode()).hexdigest() + "  " + dumpdates_name + '\n')
 
 	return dumpname
 
-def save_dump(level, dump, dumpdates, dumpname):
-	if backups_fs == None:
+def save_dump(level, dump, dumpdates, dumpname, args):
+	if args.backups_fs == None:
 		return
 	dumpdates.seek(0)
 	dump0 = dumpdates.readline()
@@ -183,16 +135,16 @@ def save_dump(level, dump, dumpdates, dumpname):
 	if f[1] != '0':
 		sys.exit(myname + ": expected level 0 in first line of dumpdates, found: " + f[1])
 	utc = format_dump_time(f[2:])
-	where = os.path.join(os.path.join(backups_fs, backups_dir), utc.isoformat())
+	where = os.path.join(os.path.join(args.backups_fs, args.backups_dir), utc.isoformat())
 	dump.seek(0)
 	try:
-		remount(backups_fs, "rw")
+		remount(args.backups_fs, "rw")
 		if level == 0:
 			os.mkdir(where, 0o755)
 		with open(os.path.join(where, dumpname), 'w') as f:
 			shutil.copyfileobj(dump, f)
 	finally:
-		remount(backups_fs, "ro")
+		remount(args.backups_fs, "ro")
 
 def format_dump_time(f):
 	d = datetime.datetime.strptime(f[0] + ' ' + f[1] + ' ' + f[2] + ' ' + f[3] + ' ' + f[4], "%a %b %d %H:%M:%S %Y")
@@ -231,74 +183,87 @@ def sleep(d):
 		print("sleep(" + repr(d) + ")")
 	time.sleep(d)
 
-def mount_retry(rcdrom):
-	subprocess.check_call(debug(["eject", "-t",  rcdrom]))
-	sleep(35)
-	if verbose:
+def mount_retry(rcdrom, args):
+	if args.verbosity:
 		stderr = None
 	else:
 		stderr = open("/dev/null",  "w")
 	cmd = ["mount", rcdrom]
 	r = subprocess.call(debug(cmd),  stderr=stderr)
 	if r != 0:
-		if verbose:
-			print("got a non zero exit code (%d) from [%s], sleep and retry mount" % (r, " ".join(pipes.quote(c) for c in cmd)))
+		verbose(args, "got a non zero exit code (%d) from [%s], sleep and retry mount" % (r, " ".join(pipes.quote(c) for c in cmd)))
 		sleep(30)
 		subprocess.check_call(debug(cmd))
 
-def iso_burn_check(dump, dumpdates, md5sums, dump_name, options):
-	iso = mkiso(dump, dumpdates, md5sums, dump_name, options)
-	burn(iso)
+def iso_burn_check(rcdrom, dump, dumpdates, md5sums, dump_name, options, args):
+	iso = mkiso(dump, dumpdates, md5sums, dump_name, options, args)
+	start_size = get_size(rcdrom, args)
+	burn(rcdrom, iso, args)
 	sleep(2)
-	mount_retry(rcdrom)
+	if not args.noeject:
+		subprocess.check_call(debug(["eject", "-t",  rcdrom]))
+		sleep(35)
+	mount_retry(rcdrom, args)
+	if not args.nosize and start_size == get_size(rcdrom, args):
+		sys.exit("%s: %s did not increase size from %d" % (myname, rcdrom, start_size))
 	cdrom_mountpoint = find_fs_for_device(rcdrom)
 	check(cdrom_mountpoint, dump, dump_name, mode="rb")
 	check(cdrom_mountpoint, dumpdates, dumpdates_name)
 	check(cdrom_mountpoint, md5sums, md5sums_name)
 	return cdrom_mountpoint
 
-def burn(iso):
+def burn(rcdrom, iso, args):
 	command = cdrecord
 	errors = tempfile.TemporaryFile(prefix="cdbackup1")
 	null = open("/dev/null", "w")
-	args = [command, 'driveropts=burnfree', '-eject', '-tao', '-data', multi, 'dev=' + rcdrom, '-']
-	if subprocess.Popen(debug(args), close_fds = True, stdin = iso, stdout = null, stderr = errors).wait():
-		errors.seek(0)
-		sys.exit(errors.read().decode() + myname + ": " + command + " failed")
 
-def mkiso(dump, dumpdates, md5sums, dump_name, options):
+	fullcommand = [command, 'driveropts=burnfree', '-tao', '-data', multi]
+	if not args.noeject:
+		fullcommand.append("-eject")
+	fullcommand.extend(['dev=' + rcdrom, '-'])
+	if subprocess.Popen(debug(fullcommand), close_fds = True, stdin = iso, stdout = null, stderr = errors).wait():
+		errors.seek(0)
+		sys.exit(errors.read().decode() + myname + ": " + " ".join(fullcommand) + " failed")
+
+def mkiso(dump, dumpdates, md5sums, dump_name, options, args):
 	command = mkisofs
-	args = [command, '-r', '-V', os.path.basename(fs), '-A', 'dump', '-publisher', me, '-p', me, '-graft-points']
-	args += "-input-charset", "ASCII",
-	args += "-quiet",
-	args += options
-	args += dump_name + "=" + dump.name,
-	args += dumpdates_name + '=' + dumpdates.name,
+	fullcommand = [command, '-r', '-V', os.path.basename(args.fs), '-A', 'dump', '-publisher', args.publisher, '-p', args.publisher, '-graft-points']
+	fullcommand += "-input-charset", "ASCII",
+	fullcommand += "-quiet",
+	fullcommand += options
+	fullcommand += dump_name + "=" + dump.name,
+	fullcommand += dumpdates_name + '=' + dumpdates.name,
 	md5sums.flush()
-	args += md5sums_name + '=' + md5sums.name,
-	if isoimage == None:
+	fullcommand += md5sums_name + '=' + md5sums.name,
+	if args.isoimage == None:
 		iso = tempfile.TemporaryFile(prefix="cdbackup2")
 	else:
-		iso = open(isoimage, "w")
-	errors = tempfile.TemporaryFile(prefix="cdbackup3")
-	if subprocess.Popen(debug(args), close_fds = True, stdout = iso, stderr = errors).wait():
+		iso = open(args.isoimage, "w")
+	errors = tempfile.TemporaryFile("r+", prefix="cdbackup3")
+	if subprocess.Popen(debug(fullcommand), close_fds = True, stdout = iso, stderr = errors).wait():
 		errors.seek(0)
-		sys.exit(errors.read().encode(sys.getdefaultencoding()) + myname + ": " + command + " failed")
+		sys.exit(errors.read() + myname + ": " + command + " failed")
 
-	if isoimage != None:
+	if args.isoimage != None:
 		sys.exit()
 	iso.seek(0)
 	return iso
 
-def incremental(fs_special):
+def get_size(rcdrom, args):
+	with open(os.path.join("/sys/block", os.path.basename(rcdrom), "size")) as f:
+		sz = int(f.readline())
+		verbose(args, rcdrom, "size", sz)
+		return sz
+
+def incremental(rcdrom, fs_special, args):
 	md5sums = tempfile.NamedTemporaryFile(prefix="cdbackup4", mode='w+')
 	dumpdates_md5digest = None
 	cdrom_mountpoint = find_fs_for_device(rcdrom)
 	if cdrom_mountpoint == None:
-		mount_retry(rcdrom)
+		mount_retry(rcdrom, args)
 		cdrom_mountpoint = find_fs_for_device(rcdrom)
 		if cdrom_mountpoint == None:
-			sys.exit(myname + ": incremental: failed to find where " + fs + "is mounted")
+			sys.exit(myname + ": incremental: failed to find where " + rcdrom + " is mounted")
 	for line in open(os.path.join(cdrom_mountpoint, md5sums_name)):
 		fields = line.split()
 		if fields[1] != dumpdates_name:
@@ -328,8 +293,8 @@ def incremental(fs_special):
 		sys.exit(myname + ": no backups on CD")
 
 	dump = tempfile.NamedTemporaryFile(prefix="cdbackup6")
-	dump_name = do_dump(level, dump, dumpdates, md5sums, fs_special)
-	if dump.tell() < minsize:
+	dump_name = do_dump(level, dump, dumpdates, md5sums, fs_special, args)
+	if dump.tell() < args.minsize:
 		if verbose:
 			print(myname + ": backup size (" + str(dump.tell()) + " bytes) too small (<" + str(minsize) + " bytes)")
 		return
@@ -348,9 +313,9 @@ def incremental(fs_special):
 	if msinfo == None:
 		sys.exit(myname + ": no output from wodim")
 
-	iso_burn_check(dump, dumpdates, md5sums, dump_name, ['-M', rcdrom, '-C', msinfo] + args)
+	iso_burn_check(rcdrom, dump, dumpdates, md5sums, dump_name, ['-M', rcdrom, '-C', msinfo] + args.extras, args)
 
-def initialize(fs_special):
+def initialize(rcdrom, fs_special, args):
 	secret_key_name = "offline-secret.key"
 	public_key_name = "offline-public.key"
 	readme = tempfile.NamedTemporaryFile(mode="w+", prefix="cdbackup7")
@@ -375,13 +340,13 @@ echo cd $t/fs\n\
 	md5sums = tempfile.NamedTemporaryFile(mode="w+", prefix="cdbackup8")
 
 	armoured_secret_key = tempfile.NamedTemporaryFile(prefix="cdbackup9")
-	if subprocess.Popen(gpg_options + stuart_gpg_options + ("--armor", "--export-secret-keys", key), close_fds = True, stdout = armoured_secret_key).wait():
+	if subprocess.Popen(gpg_options + stuart_gpg_options + ("--armor", "--export-secret-keys", args.key), close_fds = True, stdout = armoured_secret_key).wait():
 		sys.exit(myname, ": gpg --export-secret-keys failed")
 	armoured_secret_key.seek(0)
 	md5sums.write(hashlib.md5(armoured_secret_key.read()).hexdigest() + "  " + secret_key_name + "\n")
 
 	armoured_public_key = tempfile.NamedTemporaryFile(prefix="cdbackupA")
-	if subprocess.Popen(gpg_options + ("--armor", "--export", key), close_fds = True, stdout = armoured_public_key).wait():
+	if subprocess.Popen(gpg_options + ("--armor", "--export", args.key), close_fds=True, stdout=armoured_public_key).wait():
 		sys.exit(myname, ": gpg --export failed")
 	armoured_public_key.seek(0)
 	md5sums.write(hashlib.md5(armoured_public_key.read()).hexdigest() + "  " + public_key_name + "\n")
@@ -389,9 +354,9 @@ echo cd $t/fs\n\
 	dumpdates = tempfile.NamedTemporaryFile(mode="w+", prefix="cdbackupB")
 	dump = tempfile.NamedTemporaryFile(prefix="cdbackupC")
 
-	dump_name = do_dump(0, dump, dumpdates, md5sums, fs_special)
+	dump_name = do_dump(0, dump, dumpdates, md5sums, fs_special, args)
 	readme_name = "readme.sh"
-	cdrom_mountpoint = iso_burn_check(dump, dumpdates, md5sums, dump_name, [readme_name + "=" + readme.name, secret_key_name + "=" + armoured_secret_key.name, public_key_name + "=" + armoured_public_key.name] + args)
+	cdrom_mountpoint = iso_burn_check(rcdrom, dump, dumpdates, md5sums, dump_name, [readme_name + "=" + readme.name, secret_key_name + "=" + armoured_secret_key.name, public_key_name + "=" + armoured_public_key.name] + args.extras, args)
 	check(cdrom_mountpoint, readme, readme_name)
 
 def remount(fs, fs_special, flag):
@@ -408,26 +373,106 @@ def find_uuid_for_device(special):
 			return e
 	sys.exit(special + " not found in " + by_uuid)
 
-fs_fake_special = find_device_for_fs(fs, "/etc/mtab")
-if fs_fake_special == None:
-	sys.exit(myname + ": find_device_for_fs (1): " + fs + " not found in " + mounts)
-fs_real_special_device = find_device_for_fs(fs, "/proc/mounts")
-if fs_real_special_device == None:
-	sys.exit(myname + ": find_device_for_fs (2): " + fs + " not found in " + mounts)
-fs_real_special = find_uuid_for_device(fs_real_special_device)
+def do_backup(rcdrom, args):
 
-#mounts = "/proc/mounts"
-#fs_real_special = None
-#for line in open(mounts):
-#	dev, mount_point, type, flags, d0, d1 = line.split()
-#	if mount_point == fs:
-#		fs_real_special = dev
-#if fs_real_special == None:
-#	sys.exit(fs + " not found in " + mounts)
+	fs_fake_special = find_device_for_fs(args.fs, "/etc/mtab")
+	if fs_fake_special == None:
+		sys.exit(myname + ": find_device_for_fs (1): " + args.fs + " not found in " + mounts)
+	fs_real_special_device = find_device_for_fs(args.fs, "/proc/mounts")
+	if fs_real_special_device == None:
+		sys.exit(myname + ": find_device_for_fs (2): " + args.fs + " not found in " + mounts)
+	fs_real_special = find_uuid_for_device(fs_real_special_device)
 
-remount(fs, fs_fake_special, "ro")
-if initialize_cd:
-	initialize(fs_real_special)
-else:
-	incremental(fs_real_special)
-remount(fs, fs_fake_special, "rw")
+	#mounts = "/proc/mounts"
+	#fs_real_special = None
+	#for line in open(mounts):
+	#	dev, mount_point, type, flags, d0, d1 = line.split()
+	#	if mount_point == fs:
+	#		fs_real_special = dev
+	#if fs_real_special == None:
+	#	sys.exit(fs + " not found in " + mounts)
+
+	remount(args.fs, fs_fake_special, "ro")
+	if args.initialize_cd:
+		initialize(rcdrom, fs_real_special, args)
+	else:
+		incremental(rcdrom, fs_real_special, args)
+	remount(args.fs, fs_fake_special, "rw")
+
+def main():
+	parser = argparse.ArgumentParser()
+	
+	parser.add_argument("-v", "--verbosity", action="count", default=0, help="increase output verbosity")
+	parser.add_argument('--initialize', action='store_true', dest='initialize_cd', help='initialise an empty CDROM')
+	parser.add_argument('--noeject', action='store_true', help='do not eject to get new CDROM size')
+	parser.add_argument('--nosize', action='store_true', help='do not check new CDROM size')
+	parser.add_argument('--minsize', type=int, default=1600, help='minimim size to cause a backup')
+	parser.add_argument('--fs', default=None, help='fs to backup')
+	parser.add_argument('--publisher', default='unknown', help='publisher for ISO')
+	parser.add_argument('--cdrom', default='/dev/cdrom', help='device of CDROM drive')
+	parser.add_argument('--key', help='encryption key')
+	parser.add_argument('extras', nargs='*', help='files to add')
+
+	parser.add_argument('--image', dest='isoimage', help='just least the ISO in this file')
+	parser.add_argument('--backups_fs', help='copy backups to this filesystem')
+	parser.add_argument('--backups_directory', dest='backups_dir', help='copy backups into this subdir')
+
+	args = parser.parse_args()
+
+	if False:
+		try:
+			opts, args = getopt.getopt(sys.argv[1:], "v", options)
+		except getopt.GetoptError:
+			usage()
+		for o, a in opts:
+			if o in ("--initialize"):
+				initialize_cd = True
+			elif o in ("--minsize"):
+				minsize = int(a)
+			elif o in ("--cdrecord"):
+				cdrecord = "cdrecord"
+				mkisofs = "mkisofs"
+			elif o in ("--last"):
+				multi = '-data'
+				minsize = 0
+			elif o in ("--mount"):
+				do_mount = int(a)
+			elif o in ("--fs"):
+				fs = a
+			elif o in ("--image"):
+				isoimage = a
+			elif o in ("--backups_fs"):
+				backups_fs = a
+			elif o in ("--backups_directory"):
+				backups_dir = a
+			elif o in ("--key"):
+				key = a
+			elif o in ("--cdrom"):
+				cdrom = a
+			elif o in ("--verbose", "-v"):
+				verbose = True
+			elif o in ("--name_change"):
+				name_change = True
+			else:
+				usage()
+
+	#if len(args): usage()
+
+	if args.cdrom == None:
+		sys.exit(myname + ": must specify the cdrom to backup onto")
+	if args.key == None:
+		sys.exit(myname + ": must specify the key to encrypt with")
+	if args.fs == None:
+		sys.exit(myname + ": must specify the filesystem to backup")
+
+	try:
+		rcdrom = os.path.join(os.path.dirname(args.cdrom), os.readlink(args.cdrom))
+	except OSError as x:
+		if x.errno != errno.EINVAL:
+			raise
+		rcdrom = args.cdrom
+
+	do_backup(rcdrom, args)
+
+if __name__ == "__main__":
+	main()
