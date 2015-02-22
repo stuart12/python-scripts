@@ -196,9 +196,10 @@ def main():
 	used = 0
 	for i in args:
 		sz, names = do_album(i, snapshots, options)
-		if (used + sz) * options.block_size >= dvd_size:
+		required = (used + sz) * options.block_size
+		if required >= dvd_size:
 			if used == 0:
-				fatal("no space for first album: " + i)
+				fatal("no space for first album: %s (%d < %d)" % (i, required, dvd_size))
 			if not options.quiet:
 				print("no more space for", i)
 		else:
