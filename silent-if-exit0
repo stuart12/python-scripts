@@ -16,7 +16,7 @@ import tempfile
 import subprocess
 import shutil
 import argparse
-import shlex
+import pipes
 
 def verbose(args, *opts):
 	if args.verbosity:
@@ -24,13 +24,14 @@ def verbose(args, *opts):
 
 def run(args):
 	command = args.command
-	verbose(args, "run:", " ".join(shlex.quote(x) for x in command))
+	quoted = " ".join(pipes.quote(x) for x in command)
+	verbose(args, "run:", quoted)
 	stdout = tempfile.TemporaryFile(mode='w+',suffix='silent0')
 	stderr = tempfile.TemporaryFile(mode='w+',suffix='silent0')
 	returncode = subprocess.call(command, stdout=stdout, stderr=stderr)
 	if returncode != 0:
 		if args.verbosity or args.error:
-			print("%s: command failed (%d): %s" % (os.path.basename(sys.argv[0]), returncode," ".join(shlex.quote(x) for x in command)), file=sys.stderr)
+			print("%s: command failed (%d): %s" % (os.path.basename(sys.argv[0]), returncode, quoted), file=sys.stderr)
 		stdout.seek(0)
 		stderr.seek(0)
 		shutil.copyfileobj(stdout, sys.stdout)
