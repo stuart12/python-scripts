@@ -267,7 +267,7 @@ def main(argv):
 		(u".pcd", u".jpg", ["pcd-to-jpeg", "--output"]),
 		(u".cr2", u".jpg", ["cr2-to-jpeg"]),
 		(u".cr2.pp3", u".jpg", ["cr2-to-jpeg"]),
-		(u".flac", u".ogg", ["oggenc", "--quiet", "--quality=5", "-o"]),
+		(u".flac", u".ogg", ["oggenc", "--quiet", "--quality=6", "-o"]),
 		(u".jpg", u".jpg", ["resize-jpeg", "--output"]),
 		(u".png", u".jpg", ["png-to-jpeg", "--output"])
 	)
