@@ -1,0 +1,51 @@
+#!/usr/bin/python3
+# run a program and print its output iif it fails, Copyright (C) 2015 Stuart Pook
+#
+# This program is free software: you can redistribute it and/or modify it under
+# the terms of the GNU General Public License as published by the Free Software
+# Foundation, either version 3 of the License, or (at your option) any later
+# version.  This program is distributed in the hope that it will be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+# or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
+# more details.  You should have received a copy of the GNU General Public
+# License along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+import os
+import sys
+import tempfile
+import subprocess
+import shutil
+import argparse
+import shlex
+
+def verbose(args, *opts):
+	if args.verbosity:
+		print(os.path.basename(sys.argv[0]) + ":", *opts, file=sys.stderr)
+
+def run(args):
+	command = args.command
+	verbose(args, "run:", " ".join(shlex.quote(x) for x in command))
+	stdout = tempfile.TemporaryFile(mode='w+',suffix='silent0')
+	stderr = tempfile.TemporaryFile(mode='w+',suffix='silent0')
+	returncode = subprocess.call(command, stdout=stdout, stderr=stderr)
+	if returncode != 0:
+		if args.verbosity or args.error:
+			print("%s: command failed (%d): %s" % (os.path.basename(sys.argv[0]), returncode," ".join(shlex.quote(x) for x in command)), file=sys.stderr)
+		stdout.seek(0)
+		stderr.seek(0)
+		shutil.copyfileobj(stdout, sys.stdout)
+		shutil.copyfileobj(stderr, sys.stderr)
+	sys.exit(returncode)
+
+def main():
+	parser = argparse.ArgumentParser()
+
+	parser.add_argument("-v", "--verbosity", action="count", default=0, help="increase output verbosity")
+	parser.add_argument('-e', '--error', action='store_true', dest='error', help='print a message if the command fails')
+	parser.add_argument('command', nargs=argparse.REMAINDER, help='command to run')
+
+	args = parser.parse_args()
+	run(args)
+
+if __name__ == "__main__":
+	main()
