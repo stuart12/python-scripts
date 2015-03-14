@@ -174,7 +174,11 @@ def read_config(config_file, selection, options):
 								subvolume_create(top, options)
 								mkdir(secret, options)
 								subvolume_create(rsync_dest, options)
-							call(["rsync"] + options.rsync + [ source + "/", rsync_dest ], options)
+							cmd = ["rsync"]
+							if options.verbose > 1:
+								cmd.append("-P")
+							cmd += options.rsync + [ source + "/", rsync_dest ]
+							call(cmd, options)
 							create_snapshot(rsync_dest, os.path.join(options.backups, args[-1], tag), options)
 
 def main():	
@@ -184,7 +188,7 @@ def main():
 	rsync_opts = ["--archive", "--one-file-system", "--hard-links", "--inplace", "--delete" ]
 	parser.add_option("--first", action="store_true", help="make backup directory volume structure")
 	parser.add_option("--initialise", action="store_true", help="make backup directory volume structure for new filesystem")
-	parser.add_option("-v", "--verbose", action="store_true", help="verbose")
+	parser.add_option("-v", "--verbose", action="count", help="verbose")
 	parser.add_option("-n", "--dryrun", default=False, action="store_true", help="do not execute")
 	parser.add_option("--data", default="/disks", help="volume to snapshot and backup [%default]")
 	parser.add_option("--snapshots", default="/disks/snapshots", help="parent directory where to create snapshots [%default]")
@@ -208,7 +212,11 @@ def main():
 	if (options.tar0 or options.tar1) and not options.dryrun:
 		import Crypto.Hash.MD5
 		
-	read_config(options.config, args, options)
+	if options.initialise:
+		for fs in args:
+			initialise(fs, options)
+	else:
+		read_config(options.config, args, options)
 	return
 		
 	if options.incremental0 or options.incremental1:
