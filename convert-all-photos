@@ -19,7 +19,7 @@ import sys
 
 def main():
 	parser = optparse.OptionParser(usage="usage: %prog [options] [--help] [<size> ...]")
-	parser.add_option("-t", "--target_dir", default=os.path.expanduser("/disks/ws/converted-photos"), help="target directory [%default]")
+	parser.add_option("-t", "--target_dir", default=os.path.expanduser("~/ws/converted-photos"), help="target directory [%default]")
 	parser.add_option("-s", "--source_dir", default=os.path.expanduser("~/photos"), help="source directory [%default]")
 	parser.add_option("-v", "--verbose", action="store_true", help="verbose")
 	parser.add_option("-q", "--quiet", action="store_true", help="quiet")
@@ -27,10 +27,10 @@ def main():
 	parser.add_option("--nice", type='int', default=8, help="nice [%default]")
 	parser.add_option("-c", "--ncpus", type='int', help="number of cpus to use")
 	(options, args) = parser.parse_args()
-		
+
 	print(os.path.basename(sys.argv[0]) + ":", "cd", options.target_dir)
 	os.chdir(options.target_dir)
-	
+
 	dirs = os.listdir(".")
 	start = ["transform", "--delete", "--max_filename_characters=64" ]
 	if options.ncpus:
@@ -45,7 +45,7 @@ def main():
 
 	start.append("--file_permissions=040")
 	start.append("--directory_permissions=050")
-			
+
 	os.nice(options.nice)
 	to_do = frozenset(args)
 	for d in dirs:
@@ -53,6 +53,6 @@ def main():
 			command = start + [ options.source_dir, d]
 			print(os.path.basename(sys.argv[0]) + ":", " ".join(command))
 			subprocess.check_call(command)
-	
+
 if __name__ == "__main__":
 	main()
