@@ -15,35 +15,30 @@
 import optparse
 import os
 import subprocess
-import sys
 import pipes
 
 def main():
 	parser = optparse.OptionParser(usage="usage: %prog [options] [--help]")
-	parser.add_option("-t", "--target_dir", default=os.path.expanduser("/disks/ws/converted-photos"), help="target directory [%default]")
 	parser.add_option("--machine", default="nexus7", help="where to send to [%default]")
-	parser.add_option("-s", "--source_dir", default="/disks/ws/converted-photos", help="source directory [%default]")
+	parser.add_option("-s", "--source_dir", default=os.path.expanduser("~/ws/converted-photos"), help="source directory [%default]")
 	parser.add_option("--dest_dir", default="/mnt/shell/emulated/0/Stuart/", help="destination directory [%default]")
 	parser.add_option("-v", "--verbose", action="store_true", help="verbose")
 	parser.add_option("-n", "--norun", action="store_true", help="don't run the rsync")
-	parser.add_option("-S", "--size", default="2410x1472-94", help="size [%default]")
+	parser.add_option("-S", "--size", default="2560x2560-90", help="size [%default]")
+	parser.add_option("--rsync-path", default=None, help="remote rsync path [%default]")
 	(options, args) = parser.parse_args()
-	
+
 	if args:
 		parser.error("no arguments allowed")
-		
-	cmd = ["rsync", "--copy-unsafe-links", "--times", "--delete", "-Pr", os.path.join(options.source_dir, options.size) + "/", options.machine + ":" + os.path.join(options.dest_dir, "photos-sync/") ]
+
+	cmd = ["rsync"]
+	if options.rsync_path:
+		cmd.append("--rsync-path=" + options.rsync_path)
+	cmd.extend(["--copy-unsafe-links", "--times", "--delete", "-Pr", os.path.join(options.source_dir, options.size) + "/", options.machine + ":" + os.path.join(options.dest_dir, "photos-sync/") ])
 	if options.verbose:
 		print(" ".join(pipes.quote(c) for c in cmd))
 	if not options.norun:
 		subprocess.check_call(cmd)
-	
+
 if __name__ == "__main__":
 	main()
-
-#!/bin/sh -x
-#from=2560x2560-94
-#extra=2012-11Cuba
-#extra=2013-01Australia
-#exec rsync --copy-unsafe-links --size-only --delete-before -Pr /disks/ws/converted-photos/$from/$extra nexus7:/mnt/shell/emulated/0/Stuart/photos-sync/
-
