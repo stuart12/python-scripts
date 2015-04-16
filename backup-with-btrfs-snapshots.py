@@ -47,8 +47,11 @@ def get_snapshots(dirname, suffix, options):
 
 def check_pipe(command, p, tmp):
 	if p.wait() != 0:
-		tmp.seek(0)
-		r = tmp.read()
+		if tmp:
+			tmp.seek(0)
+			r = tmp.read()
+		else:
+			r = ""
 		warn(quote_command(command), "failed (%d): %s" % (p.returncode, r))
 		return 1
 	return 0
@@ -60,8 +63,8 @@ def print_diff_files(dcmp):
 		error("left_only %s only found in %s" % (name, dcmp.left))
 	for name in dcmp.right_only:
 		error("right_only %s only found in %s" % (name, dcmp.right))
-	for name in dcmp.common_funny:
-		error("common_funny %s found in %s & %s" % (name, dcmp.left, dcmp.right))
+	#for name in dcmp.common_funny: # problem with symlinks
+		#error("common_funny %s found in %s & %s" % (name, dcmp.left, dcmp.right))
 	for name in dcmp.funny_files:
 		error("funny_files %s found in %s & %s" % (name, dcmp.left, dcmp.right))
 
@@ -71,10 +74,13 @@ def print_diff_files(dcmp):
 def pipe(first, second, options):
 	verbose(options, "%s | %s" % (quote_command(first), quote_command(second)))
 
-	t1 = tempfile.TemporaryFile(mode='w+')
-	t2 = tempfile.TemporaryFile(mode='w+')
+	if options.verbose:
+		t1 = t2 = None
+	else:
+		t1 = tempfile.TemporaryFile(mode='w+')
+		t2 = tempfile.TemporaryFile(mode='w+')
 	p1 = subprocess.Popen(first, stdout=subprocess.PIPE, stderr=t1)
-	p2 = subprocess.Popen(second, stdin=p1.stdout, stderr=t2)
+	p2 = subprocess.Popen(second, stdin=p1.stdout, stdout=t2, stderr=t2)
 	p1.stdout.close()
 	r = 0
 	r += check_pipe(first, p1, t1)
@@ -93,7 +99,7 @@ def run(options):
 		print("Section: %s %s -> %s" % (section_name, src, dst))
 		src_snapshots = sorted(get_snapshots(src, "", options))
 		dst_snapshots = frozenset(get_snapshots(dst, options.good, options))
-		if len(src) == 0:
+		if len(src_snapshots ) == 0:
 			error("source directory %s in empty", src)
 
 		target = src_snapshots[-1]
