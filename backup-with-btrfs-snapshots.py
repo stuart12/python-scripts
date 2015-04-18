@@ -15,7 +15,6 @@ import os
 import sys
 import tempfile
 import subprocess
-import shutil
 import shlex
 import argparse
 import configparser
@@ -35,18 +34,9 @@ def error(*opts):
 def quote_command(command):
 	return " ".join(shlex.quote(x) for x in command)
 
-def get_snapshots(dirname, suffix, options):
-	fns = os.listdir(dirname)
-	if len(suffix) == 0:
-		return fns
-	r = []
-	for fn in fns:
-		if fn.endswith(suffix):
-			r.append(fn[:-len(suffix)])
-	return r
-
-def check_pipe(command, p, tmp):
+def check_pipe(command, p):
 	if p.wait() != 0:
+		tmp = p.stderr
 		if tmp:
 			tmp.seek(0)
 			r = tmp.read()
@@ -55,6 +45,35 @@ def check_pipe(command, p, tmp):
 		warn(quote_command(command), "failed (%d): %s" % (p.returncode, r))
 		return 1
 	return 0
+
+def get_stdout(options):
+	if options.verbosity > 0:
+		return None
+	return tempfile.TemporaryFile(mode='w+')
+
+def check_call(command, options):
+	verbose(options, quote_command(command))
+	p = subprocess.Popen(command, stderr=subprocess.STDOUT, stdout=get_stdout(options))
+	if check_pipe(command, p) > 0:
+		sys.exit(10)
+
+def get_snapshots(dirname, options):
+	return os.listdir(dirname)
+
+def get_backups(dirname, options):
+	try:
+		fns = os.listdir(dirname)
+	except FileNotFoundError:
+		check_call([options.btrfs, "subvolume", "create", dirname], options)
+		fns = []
+
+	r = []
+	for fn in fns:
+		if fn.endswith(options.good):
+			r.append(fn[:-len(options.good)])
+		elif options.clean:
+			check_call([options.btrfs, "subvolume", "delete", os.path.join(dirname, fn)], options)
+	return r
 
 def print_diff_files(dcmp):
 	for name in dcmp.diff_files:
@@ -74,21 +93,42 @@ def print_diff_files(dcmp):
 def pipe(first, second, options):
 	verbose(options, "%s | %s" % (quote_command(first), quote_command(second)))
 
-	if options.verbose:
-		t1 = t2 = None
-	else:
-		t1 = tempfile.TemporaryFile(mode='w+')
-		t2 = tempfile.TemporaryFile(mode='w+')
-	p1 = subprocess.Popen(first, stdout=subprocess.PIPE, stderr=t1)
-	p2 = subprocess.Popen(second, stdin=p1.stdout, stdout=t2, stderr=t2)
+	p1 = subprocess.Popen(first, stdout=subprocess.PIPE, stderr=get_stdout(options))
+	p2 = subprocess.Popen(second, stdin=p1.stdout, stdout=get_stdout(options), stderr=subprocess.STDOUT)
 	p1.stdout.close()
 	r = 0
-	r += check_pipe(first, p1, t1)
-	r += check_pipe(second, p2, t2)
+	r += check_pipe(first, p1)
+	r += check_pipe(second, p2)
 	if r:
 		sys.exit(r)
 
-def run(options):
+def copy(src, dst, options):
+		src_snapshots = sorted(get_snapshots(src, options))
+		if len(src_snapshots) == 0:
+			error("source directory %s is empty", src)
+		dst_snapshots = frozenset(get_backups(dst, options))
+
+		target = src_snapshots[-1]
+		old_snapshot = os.path.join(src, target)
+		if target in dst_snapshots:
+			if options.skip:
+				return
+			error("most recent snapshot %s is already in %s" % (old_snapshot, dst))
+		sender = [options.btrfs, "send"]
+		for common in dst_snapshots & frozenset(src_snapshots):
+			sender.extend(["-c", os.path.join(src, common)])
+		sender.append(old_snapshot)
+
+		pipe(sender, [options.btrfs, "receive", dst], options)
+
+		new_snapshot = os.path.join(dst, target)
+		if options.compare:
+			verbose(options, "compare", old_snapshot, new_snapshot)
+			print_diff_files(filecmp.dircmp(old_snapshot, new_snapshot))
+
+		os.rename(new_snapshot, new_snapshot + options.good)
+
+def copy_with_config(options):
 	config = configparser.ConfigParser()
 	with open(options.config) as f:
 		config.read_file(f)
@@ -96,44 +136,43 @@ def run(options):
 		section = config[section_name]
 		src = section.get("source")
 		dst = section.get("destination")
-		print("Section: %s %s -> %s" % (section_name, src, dst))
-		src_snapshots = sorted(get_snapshots(src, "", options))
-		dst_snapshots = frozenset(get_snapshots(dst, options.good, options))
-		if len(src_snapshots ) == 0:
-			error("source directory %s in empty", src)
+		verbose(options, "Section: %s %s -> %s" % (section_name, src, dst))
+		copy(src, dst, options)
 
-		target = src_snapshots[-1]
-		old_snapshot = os.path.join(src, target)
-		if target in dst_snapshots:
-			error("most recent snapshot %s is already backuped in %s" % (old_snapshot, dst))
-		cmd = [options.btrfs, "send" ]
-		for common in dst_snapshots & frozenset(src_snapshots):
-			cmd.extend(["-c", os.path.join(src, common)])
-		cmd.append(old_snapshot)
-
-		receive = [options.btrfs, "receive", dst]
-		pipe(cmd, receive, options)
-
-		new_snapshot = os.path.join(dst, target)
-		if options.compare:
-			verbose(options, "compare", old_snapshot, new_snapshot)
-			print_diff_files(filecmp.dircmp(old_snapshot, new_snapshot))
-		if options.good:
-			os.rename(new_snapshot, new_snapshot + options.good)
+def copy_directories(src_dir, dst_dir, options):
+	for subdir in os.listdir(src_dir):
+		copy(os.path.join(src_dir, subdir), os.path.join(dst_dir, subdir), options)
 
 def main():
 	parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
 	parser.add_argument("-v", "--verbosity", action="count", default=0, help="increase output verbosity")
-	parser.add_argument('-c', '--config', default="/etc/local/btrfs-snapshoter.ini", help='config file')
+	parser.add_argument('--config', default=None, help='config file')
 	parser.add_argument('--good', default=".good", help='suffix for correctly transfered snapshots')
 	parser.add_argument('--btrfs', default="btrfs", help='btrfs command')
-	parser.add_argument('--compare', action='store_true', help='check that directories are the same')
-	parser.add_argument('command', nargs=argparse.REMAINDER, help='command to run')
+	parser.add_argument('-c', '--compare', action='store_true', help='check that directories are the same')
+	parser.add_argument('-s', '--skip', action='store_true', help='skip directories that have already been copied')
+	parser.add_argument('--no_create_dest', default=True, dest="create_dest", action='store_false', help='do not create destination')
+	parser.add_argument('--no_clean', default=True, dest="clean", action='store_false', help='do not clean destination volumes')
+	parser.add_argument('-D', '--directories', action='store_true', help='do subdirectories of arguments')
 
-	args = parser.parse_args()
+	parser.add_argument('args', nargs=argparse.REMAINDER, help='command to run')
 
-	run(args)
+	options = parser.parse_args()
+
+	if not options.good:
+		sys.exit("good suffix cannot be empty")
+
+	if options.config:
+		copy_with_config(options.config)
+	elif options.directories and len(options.args) >= 2:
+		for src in options.args[0:-1]:
+			copy_directories(src, options.args[-1], options)
+	elif len(options.args) == 2:
+		copy(options.args[0], options.args[-1], options)
+	else:
+		parser.print_help()
+		sys.exit("bad arguments")
 
 if __name__ == "__main__":
 	main()
