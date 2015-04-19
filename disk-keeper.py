@@ -71,17 +71,15 @@ def get_state(disk, options):
 		error("no device status for %s" % (disk))
 	return result
 
-def get_temperature2(disk, options):
-	cmd = [options.smartctl, "--attributes"]
-	if options.device_type:
-		cmd.extend(["-d", options.device_type])
-	cmd.append(disk)
+def get_temperature2(cmd, options):
 	p = start_pipe(cmd, options)
 	temperature = None
-	for line in p.stdout:
-		fields = line.split()
-		temperature_position = options.raw_value
+	temperature_position = options.raw_value
+	lines = []
 
+	for line in p.stdout:
+		lines.append(line)
+		fields = line.split()
 		if len(fields) > temperature_position:
 			try:
 				id = int(fields[0])
@@ -89,20 +87,24 @@ def get_temperature2(disk, options):
 				continue
 			if id == options.temperature_id:
 				temperature = int(fields[temperature_position])
+
 	p.stdout.close()
 	if p.wait() != 0:
-		error("%s failed (%d)" % (cmd[0], p.returncode))
-	if temperature is None:
-		error("no temperature (id %d) for %s" % (options.temperature_id, disk))
+		error("%s failed (%d) %s" % (cmd[0], p.returncode, lines))
 	return temperature
 
 def get_temperature(disk, options):
-	temp = get_temperature2(disk, options)
+	cmd = [options.smartctl, "--attributes"]
+	if options.device_type:
+		cmd.extend(["-d", options.device_type])
+	cmd.append(disk)
+
+	temp = get_temperature2(cmd, options)
 	if temp is None:
 		time.sleep(options.smartctl_sleep)
-		temp = get_temperature2(disk, options)
+		temp = get_temperature2(cmd, options)
 		if temp is None:
-			error("no temperature (id %d) for %s" % (options.temperature_id, disk))
+			error("%s did not give a temperature (id %d) for %s" % (cmd[0], options.temperature_id, disk))
 	return temp
 
 def main():
@@ -126,8 +128,8 @@ def main():
 	disk = get_filesystem_partition(options.filesystem, options)
 	verbose(options, "disk for %s is %s"  % (options.filesystem, disk))
 
-	start_temp = get_temperature(disk, options)
 	start_state = get_state(disk, options)
+	start_temp = get_temperature(disk, options)
 	now = time.time()
 	cmd = [c.replace(options.replace_string, options.filesystem) for c in [options.command] + options.args]
 	r = subprocess.call(cmd)
