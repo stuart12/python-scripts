@@ -174,7 +174,10 @@ def read_config(config_file, selection, options):
 								subvolume_create(top, options)
 								mkdir(secret, options)
 								subvolume_create(rsync_dest, options)
-							cmd = ["rsync"]
+							cmd = []
+							if options.verbose > 2:
+								cmd.extend(["strace", "-e", "file"])
+							cmd.append("rsync")
 							if options.verbose > 1:
 								cmd.append("-P")
 							cmd += options.rsync + [ source + "/", rsync_dest ]
@@ -188,7 +191,7 @@ def main():
 	rsync_opts = ["--archive", "--one-file-system", "--hard-links", "--inplace", "--delete" ]
 	parser.add_option("--first", action="store_true", help="make backup directory volume structure")
 	parser.add_option("--initialise", action="store_true", help="make backup directory volume structure for new filesystem")
-	parser.add_option("-v", "--verbose", action="count", help="verbose")
+	parser.add_option("-v", "--verbose", default=0, action="count", help="verbose")
 	parser.add_option("-n", "--dryrun", default=False, action="store_true", help="do not execute")
 	parser.add_option("--data", default="/disks", help="volume to snapshot and backup [%default]")
 	parser.add_option("--snapshots", default="/disks/snapshots", help="parent directory where to create snapshots [%default]")
