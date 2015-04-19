@@ -105,7 +105,9 @@ def pipe(first, second, options):
 def copy(src, dst, options):
 		src_snapshots = sorted(get_snapshots(src, options))
 		if len(src_snapshots) == 0:
-			error("source directory %s is empty", src)
+			if options.skip:
+				return
+			error("source directory %s is empty" % src)
 		dst_snapshots = frozenset(get_backups(dst, options))
 
 		target = src_snapshots[-1]
