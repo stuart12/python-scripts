@@ -20,6 +20,7 @@ import argparse
 import re
 import time
 import syslog
+import dateutil.parser
 
 def verbose(args, *opts):
 	if args.verbosity:
@@ -107,6 +108,28 @@ def get_temperature(disk, options):
 			error("%s did not give a temperature (id %d) for %s" % (cmd[0], options.temperature_id, disk))
 	return temp
 
+def get_last_scrub(filesystem, options):
+	cmd = [options.btrfs, "scrub", "status", filesystem]
+	p = start_pipe(cmd, options)
+	date = None
+	never = False
+	lines = []
+
+	for line in p.stdout:
+		lines.append(line)
+		match = re.match("\s*scrub started at (.*) and finished after \d+ seconds", line)
+		if match:
+			date = dateutil.parser.parse(match.group(1))
+		elif re.match("\s*no stats available", line):
+			never = True
+
+	p.stdout.close()
+	if p.wait() != 0:
+		error("%s failed (%d) %s" % (cmd[0], p.returncode, lines))
+	if date is None and not never:
+			error("%s did not give last scrub date for %s" % (cmd[0], filesystem))
+	return None if never else date
+
 def main():
 	parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
@@ -114,6 +137,7 @@ def main():
 	parser.add_argument("-s", "--stdout", action="store_true", help="messages to stdout")
 	parser.add_argument('--device_type', default=None, help='device type for smartctl')
 	parser.add_argument('--hdparm', default="hdparm", help='hdparm command')
+	parser.add_argument('--btrfs', default="btrfs", help='btrfs command')
 	parser.add_argument('--smartctl', default="smartctl", help='smartctl command')
 	parser.add_argument('--temperature_id', default=194, type=int, help='ID for smartctl Temperature_Celsius attribute')
 	parser.add_argument('--raw_value', default=9, type=int, help='column number for RAW_VALUE in smartctl attributes')
@@ -127,6 +151,9 @@ def main():
 	options = parser.parse_args()
 	disk = get_filesystem_partition(options.filesystem, options)
 	verbose(options, "disk for %s is %s"  % (options.filesystem, disk))
+
+	last_scrub = get_last_scrub(options.filesystem, options)
+	verbose(options, "last scrub", last_scrub.isoformat() if last_scrub else "never")
 
 	start_state = get_state(disk, options)
 	start_temp = get_temperature(disk, options)
