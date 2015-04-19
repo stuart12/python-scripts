@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 # vim: set shiftwidth=4,tabstop=4
 # Use btrfs send and receive to backup a subvolume to a local disk.
+# Copyright (C) 2015 Stuart Pook (http://www.pook.it)
 #
 # This program is free software: you can redistribute it and/or modify it under
 # the terms of the GNU General Public License as published by the Free Software
