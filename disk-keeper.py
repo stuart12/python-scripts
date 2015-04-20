@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 # vim: sw=4:ts=4
-# disk-keeper: run a command and then syslog its disk status.
+# disk-keeper: run a command on a disk and then syslog then disk status.
 # Copyright (C) 2015 Stuart Pook (http://www.pook.it)
 #
 # This program is free software: you can redistribute it and/or modify it under
@@ -72,7 +72,7 @@ def get_state(disk, options):
 		error("no device status for %s" % (disk))
 	return result
 
-def get_temperature2(cmd, options):
+def get_temperature2(cmd, can_fail, options):
 	p = start_pipe(cmd, options)
 	temperature = None
 	temperature_position = options.raw_value
@@ -91,7 +91,13 @@ def get_temperature2(cmd, options):
 
 	p.stdout.close()
 	if p.wait() != 0:
+		if can_fail:
+			return None
 		error("%s failed (%d) %s" % (cmd[0], p.returncode, lines))
+	if temperature is None:
+		if can_fail:
+			return None
+		error("%s did not give a temperature (id %d) %s" % (quote_command(cmd), options.temperature_id, lines))
 	return temperature
 
 def get_temperature(disk, options):
@@ -100,12 +106,10 @@ def get_temperature(disk, options):
 		cmd.extend(["-d", options.device_type])
 	cmd.append(disk)
 
-	temp = get_temperature2(cmd, options)
+	temp = get_temperature2(cmd, True, options)
 	if temp is None:
 		time.sleep(options.smartctl_sleep)
-		temp = get_temperature2(cmd, options)
-		if temp is None:
-			error("%s did not give a temperature (id %d) for %s" % (cmd[0], options.temperature_id, disk))
+		temp = get_temperature2(cmd, False, options)
 	return temp
 
 def get_last_scrub(filesystem, options):
