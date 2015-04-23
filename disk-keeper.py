@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 # vim: sw=4:ts=4
-# disk-keeper: run a command on a disk and then syslog then disk status.
+# disk-keeper: run a command and then syslog the disk status (active or standby)
+# and temperatures.
 # Copyright (C) 2015 Stuart Pook (http://www.pook.it)
 #
 # This program is free software: you can redistribute it and/or modify it under
@@ -141,6 +142,7 @@ def main():
 	parser.add_argument("-s", "--stdout", action="store_true", help="messages to stdout")
 	parser.add_argument('--device_type', default=None, help='device type for smartctl')
 	parser.add_argument('--hdparm', default="hdparm", help='hdparm command')
+	parser.add_argument('--extra_fs', default=None, help='another filesystem to check')
 	parser.add_argument('--btrfs', default="btrfs", help='btrfs command')
 	parser.add_argument('--smartctl', default="smartctl", help='smartctl command')
 	parser.add_argument('--temperature_id', default=194, type=int, help='ID for smartctl Temperature_Celsius attribute')
@@ -161,19 +163,36 @@ def main():
 
 	start_state = get_state(disk, options)
 	start_temp = get_temperature(disk, options)
+
+	last_scrub = get_last_scrub(options.filesystem, options)
+	verbose(options, "last scrub", last_scrub.isoformat() if last_scrub else "never")
+
+	if options.extra_fs:
+		extra_device = get_filesystem_partition(options.extra_fs, options)
+		extra_start_state = get_state(extra_device, options)
+		extra_start_temp = get_temperature(extra_device, options)
+
 	now = time.time()
 	cmd = [c.replace(options.replace_string, options.filesystem) for c in [options.command] + options.args]
+	verbose(options, "execute", quote_command(cmd))
 	r = subprocess.call(cmd)
 	duration = time.time() - now
 	end_temp = get_temperature(disk, options)
-#	end_state = get_state(disk, options)
 
-	message = "filesystem=%s disk=%s start_temperature=%d start_state=%s duration=%0.2f end_temperature=%s temperature_gain=%d command=%s exit_code=%d" % (
-		options.filesystem, disk, start_temp, start_state, duration, end_temp, end_temp - start_temp, shlex.quote(options.command), r
+	message = "filesystem=%s disk=%s start_temperature=%d start_state=%s end_temperature=%s temperature_gain=%d" % (
+		options.filesystem, disk, start_temp, start_state, end_temp, end_temp - start_temp
 	)
+	if options.extra_fs:
+		extra_end_temp = get_temperature(extra_device, options)
+		message += " extra_fs=%s disk=%s extra_start_temp=%d extra_start_state=%s extra_end_temp=%s extra_temp_gain=%d" % (
+			options.extra_fs, extra_device, extra_start_temp, extra_start_state, extra_end_temp, extra_end_temp - extra_start_temp
+		)
+
+	message += " duration=%0.1f exit_code=%d" % (duration, r)
 	if options.stdout:
 		print(message)
 	else:
+		verbose(options, "message", message)
 		syslog.syslog(syslog.LOG_INFO, message)
 	sys.exit(r)
 
