@@ -140,7 +140,7 @@ def main():
 
 	parser.add_argument("-v", "--verbosity", action="count", default=0, help="increase output verbosity")
 	parser.add_argument("-s", "--stdout", action="store_true", help="messages to stdout")
-	parser.add_argument('--device_type', default=None, metavar='TYPE', help='device type for smartctl')
+	parser.add_argument('--device_type', default="sat,auto", metavar='TYPE', help='device type for smartctl')
 	parser.add_argument('--hdparm', default="hdparm", metavar='COMMAND', help='hdparm command')
 	parser.add_argument('--extra_fs', default=None, metavar='MOUNTPOINT', help='another filesystem to check')
 	parser.add_argument('--btrfs', default="btrfs", metavar='COMMAND', help='btrfs command')
