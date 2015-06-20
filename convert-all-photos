@@ -25,7 +25,7 @@ def main():
 	parser.add_option("-q", "--quiet", action="store_true", help="quiet")
 	parser.add_option("-n", "--dryrun", action="store_true", help="dryrun")
 	parser.add_option("--nice", type='int', default=8, help="nice [%default]")
-	parser.add_option("-c", "--ncpus", type='int', help="number of cpus to use")
+	parser.add_option("-c", "--ncpus", type='int', default=2, help="number of cpus to use [%default]")
 	(options, args) = parser.parse_args()
 
 	print(os.path.basename(sys.argv[0]) + ":", "cd", options.target_dir)
