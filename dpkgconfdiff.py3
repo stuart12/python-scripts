@@ -37,29 +37,6 @@ def error(*opts):
 	warn(*opts)
 	sys.exit(67)
 
-def fix(directory, options):
-	mapping = {}
-	slaves = []
-	for fn in os.listdir(directory):
-		if fn.endswith(options.master):
-			match = re.fullmatch("(\d\d\d_\d\d\d\d)( .+)" + options.master, fn)
-			if match:
-				mapping[match.group(1)] = match.group(2)
-		elif fn.endswith(options.slave):
-			slave = re.fullmatch("(\d\d\d_\d\d\d\d).*" + options.slave, fn)
-			if slave:
-				slaves.append([slave.group(1), fn])
-		elif options.recursive and os.path.isdir(fn):
-			fix(os.path.join(directory, fn), options)
-	for (key, fn) in slaves:
-		text = mapping.get(key)
-		if text:
-			new_fn = key + text + options.slave
-			if fn != new_fn:
-				verbose(options, "mv %s %s" % (fn, new_fn))
-				if not options.dryrun:
-					os.rename(fn, new_fn)
-
 def pkgs_for_files(files, options):
 	command = [ "dpkg", "-S", ]
 	for f in files:
@@ -77,7 +54,10 @@ def pkgs_for_files(files, options):
 def diff_files_in_package(pkg, files, options):
 	n = options.lines
 	with tempfile.TemporaryDirectory(prefix=myname()) as tdir:
-		subprocess.check_call(["apt-get", "--quiet=3", "download", pkg], cwd=tdir)
+		getter = ["apt-get"]
+		if options.verbosity == 0:
+			getter.append("--quiet=3")
+		subprocess.check_call(getter + ["download", pkg], cwd=tdir)
 		pkg_file = os.listdir(tdir)[0]
 		contents = "contents"
 		os.mkdir(os.path.join(tdir, contents))
@@ -109,7 +89,7 @@ def diff_files_in_package(pkg, files, options):
 def main():
 	parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter, description="compare configuration files")
 
-	#parser.add_argument("-v", "--verbosity", action="count", default=0, help="increase output verbosity")
+	parser.add_argument("-v", "--verbosity", action="count", default=0, help="increase output verbosity")
 	parser.add_argument('--slave', default=".cr2.pp3", help='suffix to fix')
 	parser.add_argument('--master', default=".cr2", help='master suffix')
 	parser.add_argument("--context", "-c", action="store_true", default=False, help='Produce a context format diff')
