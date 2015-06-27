@@ -1,6 +1,7 @@
 #!/usr/bin/python3 -u
+# set noexpandtab copyindent preserveindent softtabstop=0 shiftwidth=4 tabstop=4
 # transform2 Copyright (c) 2012, 2013, 2014 Stuart Pook (http://www.pook.it/)
-# transform2 all the files in a directory using a set of rules
+# transform all the files in a directory using a set of rules
 #
 # This program is free software: you can redistribute it and/or modify it under
 # the terms of the GNU General Public License as published by the Free Software
@@ -19,9 +20,22 @@ import pipes
 import stat
 import tempfile
 import shutil
+import yaml
 
 class MyError(Exception):
 	pass
+
+def merge_dicts(*dict_args):
+	'''
+	Given any number of dicts, shallow copy and merge into a new dict,
+	precedence goes to key value pairs in latter dicts.
+	https://stackoverflow.com/questions/38987/how-can-i-merge-two-python-dictionaries-in-a-single-expression
+	'''
+	result = {}
+	for dictionary in dict_args:
+		result.update(dictionary)
+	return result
+
 
 def check_children(running, options):
 	if options.check_children:
@@ -117,14 +131,26 @@ def reap(done, ntasks, running, options):
 		else:
 			raise MyError("unexpected child", pid, status)
 
-def start_task(command, outfile, infiles, running,options):
+def start_task(command, outfile, infiles, running, environment, user_options, options):
 	dirname, base = os.path.split(outfile)
 	otmp = os.path.join(dirname, options.tmp_prefix + base)
-	c = command + [otmp] + infiles
-	if options.verbose:
-		print(" ".join(pipes.quote(a) for a in c))
 
-	proc = subprocess.Popen(c)
+	env = environment.copy()
+	for idx, infile in enumerate(infiles):
+		env["i%d" % idx] = infile
+	env["o"] = otmp
+
+	c = [command[0]]
+	for v, k in user_options.items():
+		c.extend(["--%s" % v, k])
+	c += command[1:]
+	com = " ".join(c)
+
+	if options.verbose:
+		print(env, com)
+
+
+	proc = subprocess.Popen(com, env=merge_dicts(os.environ, env), shell=True)
 # keep the Popen object in scope otherwise its destructor will wait for the child
 	running[proc.pid] = (otmp, outfile, proc)
 
@@ -145,7 +171,7 @@ class directory_maker():
 					print("mkdir -p", dir)
 				os.makedirs(dir)
 
-def execute_tasks(tasks, linked, options):
+def execute_tasks(tasks, linked, environment, user_options, options):
 	done = 0
 	running = dict()
 	ntasks = len(tasks)
@@ -160,7 +186,7 @@ def execute_tasks(tasks, linked, options):
 			if options.dryrun:
 				print(task)
 			else:
-				start_task(task[0], task[1], task[2], running, options)
+				start_task(task[0], task[1], task[2], running, environment, user_options, options)
 
 		while len(running):
 			reap(done, ntasks, running, options)
@@ -206,7 +232,7 @@ def execute(source_filenames, target_filename, match, options):
 				raise
 			os.close(os.open(target_filename, os.O_CREAT | os.O_WRONLY, 0o666))
 		return []
-	return [(match[2], target_filename, source_filenames)]
+	return [(match['command'], target_filename, source_filenames)]
 
 def stat_path(fn, options):
 	target_filename = os.path.join(fn)
@@ -309,103 +335,59 @@ def is_missing(fn, options):
 def transformer2(current, in_root, out_root, mapping, allowed_files, allowed_directories, options):
 	tasks = []
 	targets = set(os.listdir(os.path.join(out_root, current)))
-	sources = set(os.listdir(os.path.join(in_root, current)))
-	while sources:
-		source = sources.pop()
-		new_current = os.path.join(current, source)
-		source_filename = os.path.join(in_root, current, source)
+	remaining = set()
+	for fn in os.listdir(os.path.join(in_root, current)):
+		new_current = os.path.join(current, fn)
+		source_filename = os.path.join(in_root, current, fn)
 		s_stat = os.stat(source_filename)
 
 		if stat.S_ISDIR(s_stat.st_mode):
 			if want_directory(s_stat, allowed_directories, new_current, options):
-				target_filename = os.path.join(out_root, current, source)
-				if source in targets:
+				target_filename = os.path.join(out_root, current, fn)
+				if fn in targets:
 					handle_existing_directory(target_filename, options)
-					targets.remove(source)
+					targets.remove(fn)
 				else:
 					mkdir(target_filename, options)
 				tasks.extend(transformer2(new_current, in_root, out_root, mapping, allowed_files, allowed_directories, options))
-		elif not allowed_files or new_current in allowed_files:
-			for m in mapping:
-				base, matched = have_all_sources_for_pattern(m[0], source, sources, options)
+		else:
+			remaining.add(fn)
+
+	done = set()
+	for m in mapping:
+		sources = remaining.copy()
+		while sources:
+			source = sources.pop()
+			new_current = os.path.join(current, source)
+			source_filename = os.path.join(in_root, current, source)
+			s_stat = os.stat(source_filename)
+
+			if not allowed_files or new_current in allowed_files:
+				base, matched = have_all_sources_for_pattern(m['inputs'], source, sources, options)
 				if matched:
-					target = base + m[1]
-					target_filename = os.path.join(out_root, current, target)
-					if target in targets:
-						targets.remove(target)
-						if is_missing(target_filename, options):
-							unlink(target_filename, options) # remove dead link
-							target_stat = None
-						else:
-							target_stat = os.lstat(target_filename)
-					else:
-						target_stat = None
+					target = base + m['output']
 					sources -= set(matched)
-					tasks.extend(execute_if_required(matched, target_filename, m, current, in_root, target_stat, options))
-					break
+					remaining -= set(matched)
+					if target not in done:
+						done.add(target)
+						target_filename = os.path.join(out_root, current, target)
+						if target in targets:
+							targets.remove(target)
+							if is_missing(target_filename, options):
+								unlink(target_filename, options) # remove dead link
+								target_stat = None
+							else:
+								target_stat = os.lstat(target_filename)
+						else:
+							target_stat = None
+						tasks.extend(execute_if_required(matched, target_filename, m, current, in_root, target_stat, options))
+					elif target in targets:
+						raise MyError("target is done but still in targets, target=%s done=%s targets=%s" % (target,done,targets))
+	if targets & done:
+		raise MyError("bad done=%s targets=%s" % (done, targets))
 	remaining_targets(targets, current, out_root, options)
 	return tasks
 
-def transformer(in_files, out_files, mapping, options):
-	map = dict([[l[0], l[1:]]  for l in mapping])
-	out_set = frozenset(out_files)
-	directory_cache = directory_maker(options)
-	creating = set()
-	needed = set()
-
-	linked = 0
-	tasks = []
-	for in_file in in_files:
-		instruction = map[in_file[1]]
-		out_file = (in_file[0], instruction[0])
-		needed.add(out_file)
-#		print(in_file, out_file)
-		if out_file not in creating:
-			infile = os.path.join(options.source_dir, in_file[0] + in_file[1])
-			try:
-				outfile = os.path.join(options.target_dir, out_file[0] + out_file[1])
-			except UnicodeDecodeError:
-				print(out_file, file=sys.stderr)
-				raise
-			if out_file not in out_set or os.path.getmtime(infile) > os.path.getmtime(outfile):
-				creating.add(out_file)
-				command = instruction[1]
-#				print("adding", out_file, infile, outfile)
-				if command:
-					tasks.append((command, infile, outfile))
-				else:
-					directory_cache.mkdir_for_file(outfile)
-					try:
-						os.link(infile, outfile)
-						if options.verbose:
-							print("ln", pipes.quote(infile), pipes.quote(outfile))
-					except OSError as e:
-						if e.errno != errno.EXDEV:
-							raise
-						if infile[0] == '/':
-							source = infile
-						else:
-							raise
-						os.symlink(source, outfile)
-						if options.verbose:
-							print("ln -s", pipes.quote(source), pipes.quote(outfile))
-						with open(outfile) as f:
-							pass
-					linked += 1
-
-	execute_tasks(tasks, map, options, directory_cache, linked)
-	if options.delete or options.delete_sleep:
-		to_delete = out_set - needed
-		if options.verbose:
-			print(len(to_delete), "files to delete")
-		for out in to_delete:
-			f = os.path.join(options.target_dir, out[0] + out[1])
-			if options.dryrun or not options.quiet:
-				print("rm", f)
-			if options.delete_sleep:
-				time.sleep(4)
-			if not options.dryrun:
-				os.remove(f)
 
 def count_cpus():
 	n = 0;
@@ -443,7 +425,7 @@ def create_test_files(source_dir, target_dir, options):
 	make_file(os.path.join(source_dir, "x.cr2.pp3"), options)
 	results.append("x.jpg")
 	dir_name = os.path.join(source_dir, "d")
-	os.makedirs(dir_name,  exist_ok=True)
+	os.makedirs(dir_name, exist_ok=True)
 	dirs.append("d")
 	make_file(os.path.join(dir_name, "y.cr2"), options)
 	results.append(os.path.join("d", "y.jpg"))
@@ -486,8 +468,9 @@ def main(argv):
 	parser.add_option("--no_check_children", action="store_false", dest="check_children", help="do not check all children are alive [%default]")
 	parser.add_option("-p", "--tmp_prefix", default="#", help="prefix for temporary files [%default]")
 	parser.add_option("-t", "--target_dir", default=None, help="target directory")
+	parser.add_option("-c", "--config", default=None, help="YAML config file")
 	parser.add_option("-s", "--source_dir", default=None, help="source directory")
-	parser.add_option("--ncpus", default = count_cpus(), type='int', help="number of cpus to use [%default]")
+	parser.add_option("--ncpus", default=1, type='int', help="number of cpus to use [%default]")
 	parser.add_option("-F", "--file_permissions", default=0o640, type='int', help="files must have at least these permissions [%default]")
 	parser.add_option("--directory_permissions", default=0o750, type='int', help="directories must have at least these permissions [%default]")
 	(options, args) = parser.parse_args()
@@ -495,6 +478,12 @@ def main(argv):
 	if options.ncpus <= 0:
 		print("must have at least 1 cpu", file=sys.stderr)
 		sys.exit(1)
+
+	if options.config:
+		with open(options.config) as f:
+			config = yaml.safe_load(f)
+	else:
+		sys.exit('mustr have a config g=file at the moment')
 
 	source_dir = options.source_dir
 	if len(args) >= 1:
@@ -534,8 +523,8 @@ def main(argv):
 	if options.verbose:
 		print("using", options.ncpus, "cpus")
 
-	tasks = transformer2("", source_dir, target_dir, transform, in_files, None, options)
-	execute_tasks(tasks, 0, options)
+	tasks = transformer2("", source_dir, target_dir, config['transformations'], in_files, None, options)
+	execute_tasks(tasks, 0, config['environment'], config['options'], options)
 	if options.test:
 		for f in test_files:
 			os.unlink(os.path.join(target_dir, f))
