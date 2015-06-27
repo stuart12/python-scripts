@@ -34,6 +34,7 @@ def main():
 	cmd = ["rsync"]
 	if options.rsync_path:
 		cmd.append("--rsync-path=" + options.rsync_path)
+	cmd.extend(["--exclude", "#*"])
 	cmd.extend(["--copy-unsafe-links", "--times", "--delete", "-Pr", os.path.join(options.source_dir, options.size) + "/", options.machine + ":" + os.path.join(options.dest_dir, "photos-sync/") ])
 	if options.verbose:
 		print(" ".join(pipes.quote(c) for c in cmd))
