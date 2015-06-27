@@ -22,6 +22,7 @@ import time
 import difflib
 import subprocess
 import tempfile
+import re
 
 def myname():
 	return os.path.basename(sys.argv[0])
@@ -85,13 +86,14 @@ def diff_files_in_package(pkg, files, options):
 			# we're using writelines because diff is a generator
 			sys.stdout.writelines(diff)
 
+def strip_dpkg(s):
+    return re.sub(r'\.dpkg-[a-z]+$', '', s)
 
 def main():
 	parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter, description="compare configuration files")
 
 	parser.add_argument("-v", "--verbosity", action="count", default=0, help="increase output verbosity")
-	parser.add_argument('--slave', default=".cr2.pp3", help='suffix to fix')
-	parser.add_argument('--master', default=".cr2", help='master suffix')
+	parser.add_argument("--strip", "-s", action="store_true", default=False, help='strip dpkg suffixes from filenames')
 	parser.add_argument("--context", "-c", action="store_true", default=False, help='Produce a context format diff')
 	parser.add_argument("--unified", "-u", action="store_true", default=False, help='Produce a unified format diff (default)')
 	hlp = 'Produce HTML side by side diff (can use -c and -l in conjunction)'
@@ -107,12 +109,15 @@ def main():
 		parser.print_help()
 		sys.exit("bad arguments")
 
-	for f in options.files:
+	files = options.files
+	if options.strip:
+		files = [ strip_dpkg(fn) for fn in files ]
+	for f in files:
 		with open(f) as dummy:
 			pass
-	pkg2files = pkgs_for_files(options.files, options)
-	for pkg, files in pkg2files.items():
-		diff_files_in_package(pkg, files, options)
+	pkg2files = pkgs_for_files(files, options)
+	for pkg, filenames in pkg2files.items():
+		diff_files_in_package(pkg, filenames, options)
 
 if __name__ == "__main__":
 	main()
