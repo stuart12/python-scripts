@@ -1,13 +1,14 @@
 #!/usr/bin/python3
-# btrfs-snapshot-sender Copyright (c) 2014 Stuart Pook (http://www.pook.it/)
+# btrfs-snapshot-sender Copyright (c) 2014,2015 Stuart Pook (http://www.pook.it/)
 # Use btrfs send to backup from existing snapshots. Can do incremental backups.
+# vim: set shiftwidth=4 tabstop=4 noexpandtab copyindent preserveindent softtabstop=0 
 #
 # This program is free software: you can redistribute it and/or modify it under
 # the terms of the GNU General Public License as published by the Free Software
 # Foundation, either version 3 of the License, or (at your option) any later version.
 #
-# This program is distributed in the hope that it will be useful, but WITHOUT ANY
-# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+# This program is distributed in the hope that it will be useful, but WITHOUT
+# ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
 # FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
 #
 # You should have received a copy of the GNU General Public License
@@ -30,6 +31,7 @@ SnapshotRoot = /disks/data/snapshots
 # Watch out for https://patchwork.kernel.org/patch/3258971/
 
 import os
+import re
 import sys
 import subprocess
 import hashlib
@@ -167,7 +169,7 @@ def get_directory(section, options):
 def possible_unlink(output_name, options):
 	try:
 		os.unlink(output_name)
-		verbose(options, "removed",  output_name)
+		verbose(options, "removed", output_name)
 	except FileNotFoundError as ex:
 		if ex.errno != errno.ENOENT:
 			raise
@@ -316,11 +318,14 @@ def get_snapshot_from_btrfs_receive(stdout, btrfs_cmd, options):
 	info = stdout.readline()
 	if len(info) == 0:
 		fatal(options, "nothing read from", " ".join(btrfs_cmd))
-	fields = info.split()
-	if len(fields) == 0:
-		fatal(options, "no info read from", " ".join(btrfs_cmd))
-	snapshot = fields[-1]
-#	verbose(options, '"' + " ".join(btrfs_cmd) + '"', "will import", snapshot)
+	m = re.match(r"^At subvol (\S+)$", info.rstrip())
+	if m:
+		snapshot = m.group(1)
+	else:
+		fatal(options, "bad output from", " ".join(btrfs_cmd), ":", info, stdout.read())
+	info2 = stdout.readline()
+	if len(info2) != 0:
+		fatal(options, "too much output from", " ".join(btrfs_cmd), ":", info, info2, stdout.read())
 	return snapshot
 
 def quote(arg, options):
@@ -334,7 +339,8 @@ def read_btrfs_coroutine(entry, stem, fname, options):
 	md5 = get_md5_from_file(md5_file)
 	full_stem = os.path.join(options.output, stem)
 	yield
-	snapshot_command = make_waitable_command("cat && btrfs subvolume list -uso " + quote(full_stem, options), options)
+	snapshot_lister_command = "btrfs subvolume list -uRro " + quote(full_stem, options)
+	snapshot_command = make_waitable_command("cat && " + snapshot_lister_command, options)
 	snapshot_lister = subprocess.Popen(snapshot_command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, universal_newlines=True)
 	snapshot_lister.stdout.readline() # make sure sudo has finished asking any questions
 
@@ -356,7 +362,7 @@ def read_btrfs_coroutine(entry, stem, fname, options):
 		btrfs_cmd = make_waitable_command("btrfs receive " + quote(full_stem, options), options)
 
 		verbose(options, "starting", '"' + " ".join(btrfs_cmd) + '"')
-		receive = subprocess.Popen(btrfs_cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+		receive = subprocess.Popen(btrfs_cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
 		gpg2receive = multiprocessing.Process(target=read_write, args=(decrypted, gpg.stdout, receive.stdin, options), daemon=True)
 		gpg2receive.start()
 		receive.stdin.close()
@@ -387,7 +393,7 @@ def read_btrfs_coroutine(entry, stem, fname, options):
 #		shutil.copyfileobj(snapshot_lister.stdout, output)
 	wait_check(snapshot_lister, snapshot_command, options, fencrypted)
 	if not found:
-		fatal(options, "new snapshot", snapshot, "not found in list of snapshots in", snapshots)
+		fatal(options, "new snapshot", snapshot, "not found in list of snapshots given by", snapshot_lister_command)
 	verbose(options, " ".join(snapshot_command), ">", snapshots)
 
 	yield
@@ -427,7 +433,7 @@ def read_md5_coroutine(entry, stem, fname, options):
 			verbose(options, "finished copy", input_file, "to", tmp)
 
 	if new_md5 != md5:
-		sys.exit("MD5 mismatch for %s (%s != %s)"  % (entry, md5, new_md5))
+		sys.exit("MD5 mismatch for %s (%s != %s)" % (entry, md5, new_md5))
 
 	if do_copy:
 		with open(md5_file) as input:
