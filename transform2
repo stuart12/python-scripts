@@ -144,7 +144,7 @@ def start_task(command, outfile, infiles, running, environment, user_options, op
 	for v, k in user_options.items():
 		c.extend(["--%s" % v, k])
 	c += command[1:]
-	com = " ".join(c)
+	com = " ".join([str(x) for x in c])
 
 	if options.verbose:
 		print(env, com)
@@ -471,7 +471,7 @@ def main(argv):
 	parser.add_option("-c", "--config", default=None, help="YAML config file")
 	parser.add_option("-s", "--source_dir", default=None, help="source directory")
 	parser.add_option("--ncpus", default=1, type='int', help="number of cpus to use [%default]")
-	parser.add_option("-F", "--file_permissions", default=0o640, type='int', help="files must have at least these permissions [%default]")
+	parser.add_option("-F", "--file_permissions", default=0o440, type='int', help="files must have at least these permissions [%default]")
 	parser.add_option("--directory_permissions", default=0o750, type='int', help="directories must have at least these permissions [%default]")
 	(options, args) = parser.parse_args()
 
@@ -524,7 +524,7 @@ def main(argv):
 		print("using", options.ncpus, "cpus")
 
 	tasks = transformer2("", source_dir, target_dir, config['transformations'], in_files, None, options)
-	execute_tasks(tasks, 0, config['environment'], config['options'], options)
+	execute_tasks(tasks, 0, config.get('environment', {}), config['options'], options)
 	if options.test:
 		for f in test_files:
 			os.unlink(os.path.join(target_dir, f))
