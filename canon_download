@@ -1,6 +1,6 @@
 #!/usr/bin/python -3
 # canon_download Copyright (C) 2012 Stuart Pook (http://www.pook.it/)
-# Download from a Canon digital camera the photos that have not already been seen.
+# Download from a Canon or GoPro camera the photos that have not already been seen.
 # https://github.com/alexdu/piggyphoto/blob/master/piggyphoto
 # http://magiclantern.wikia.com/wiki/Remote_control_with_PTP_and_Python
 # http://pysnippet.blogspot.fr/2009/12/when-ctypes-comes-to-rescue.html
@@ -22,10 +22,20 @@ import sys
 import os
 import tempfile, filecmp
 import errno
+import re
+import collections
 
 def verbose(options, *args):
 	if options.verbose:
 		print(*args)
+
+def quiet(options, *args):
+	if not options.quiet:
+		print(*args)
+
+def error(options, *args):
+	print(*args, file=sys.stderr)
+	sys.exit(56)
 
 def read_record(options):
 	records = [line.strip() for line in open(options.record)]
@@ -33,65 +43,83 @@ def read_record(options):
 		print(len(records), "records in", options.record)
 	return records
 
-def get_files(camera, where, dir_prefix, seen, found, options):
+def get_files(camera, where, dir_prefix, mappings, seen, found, options):
 	result = []
 	verbose(options, "looking for files in", where,  dir_prefix)
 	for f, junk in camera.list_files(where):
-		prefixes = ["IMG_", "MVI_"]
-		prefix = f[0:len(prefixes[0])]
-		if not prefix in prefixes:
-			verbose(options, "skipping", f, "as", prefix, "not in", prefixes)
+		for m in mappings:
+			match = re.match(m.oldname, f, re.I)
+
+			if match:
+				dest_base = dir_prefix + match.expand(m.newname).lower()
+				break
 		else:
-			dest_base = dir_prefix + "_" + f[len(prefix):].lower()
+			error(options, "unknown filename", f, "in", where)
 
-			if not dest_base in seen:
-				found.append(dest_base)
+		if not dest_base in seen:
+			found.append(dest_base)
 
-			dest = os.path.join(options.destination, dest_base)
+		dest = os.path.join(options.destination, dest_base)
 
-			if os.path.lexists(dest):
-				if options.check:
-					result.append([where, f, dest, True])
-				elif options.verbose:
-					print("skipping existing", dest_base)
+		if os.path.lexists(dest):
+			if options.check:
+				result.append([where, f, dest, True])
 			else:
-				if dest_base in seen:
-					if options.verbose:
-						print("skipping seen", dest_base)
-				else:
-					result.append([where, f, dest, False])
+				verbose(options, "skipping existing", dest_base)
+		else:
+			if dest_base in seen:
+				verbose(options, "skipping seen", dest_base)
+			else:
+				result.append([where, f, dest, False])
 
 	return result
 
-def look_for_canon(camera, where, seen, found, options):
-	if options.verbose: print("look_for_canon in ", where)
+def look_for_directories(camera, where, seen, found, options):
+	FileMapping = collections.namedtuple("FileMapping", "oldname newname")
+	CameraInfo = collections.namedtuple("CameraInfo", "insuffix outsuffix mappings")
+	maps = [
+		CameraInfo("CANON", "c", [
+			FileMapping(r"(?:IMG|MOV)_([0-9]{4})\.(JPG|MOV|CR2)", r"\1.\2"),
+		]),
+		CameraInfo("GOPRO", "g", [
+			FileMapping(r"GOPR([0-9]{4})\.JPG", r"\1.jpg"),
+			FileMapping(r"GOPR([0-9]{4})\.mp4", r"\g<1>00.mp4"), # add 00 to sort in correct order with continuation files
+			FileMapping(r"GP([0-9]{2})([0-9]{4})\.mp4", r"\2\1.mp4"),
+		]),
+	]
+	verbose(options, "look_for_directories in", where)
 	jobs = []
 	for d, junk in camera.list_folders(where):
 		nd = os.path.join(where, d)
-		if options.verbose: print("look_for_canon", where, d, nd)
-		suffix = "CANON"
-		if d.endswith(suffix):
-			jobs.extend(get_files(camera, nd, d[:-len(suffix)], seen, found, options))
+		verbose(options, "look_for_directories", where, d, nd)
+		suffix = options.remote
+		for m in maps:
+			if d.endswith(m.insuffix):
+				jobs.extend(get_files(camera, nd, m.outsuffix + d[:-len(m.insuffix)], m.mappings, seen, found, options))
+				break
 		else:
-			jobs.extend(look_for_canon(camera, nd, seen,found,  options))
-	if options.verbose:
-		print("look_for_canon:", jobs)
+			error(options, "unknown dir", nd)
+	return jobs
+
+def look_for_dcim(camera, where, seen, found, options):
+	verbose(options, "look_for_dcim in", where)
+	jobs = []
+	for d, junk in camera.list_folders(where):
+		nd = os.path.join(where, d)
+		verbose(options, "look_for_dcim in", where, d, nd)
+		if d == options.remote:
+			jobs.extend(look_for_directories(camera, nd, seen, found, options))
+		else:
+			jobs.extend(look_for_dcim(camera, nd, seen, found, options))
 	return jobs
 
 def download(jobs, camera, options):
-	if not options.quiet:
-		print("download:", len(jobs), "files to download or check")
+	quiet(options, "download:", len(jobs), "files to download or check")
 	if not options.dryrun:
 		i = 0
-		for where, f, dest_base, check in jobs:
+		for where, f, dest, check in jobs:
 			i += 1
-			if not options.quiet:
-				if check:
-					mess = "check"
-				else:
-					mess = "download"
-				print(mess, "%.0f%%" % (100.0 * i / len(jobs)), dest_base)
-			dest = os.path.join(options.destination, dest_base)
+			quiet(options, "check" if check else "download", "%3.0f%%" % (100.0 * i / len(jobs)), dest)
 			if check:
 				with tempfile.NamedTemporaryFile(delete = True) as tmp:
 					camera.download_file(where, f, tmp.name)
@@ -99,25 +127,19 @@ def download(jobs, camera, options):
 						print(os.path.basename(sys.argv[0]) + ":", dest, "is different")
 			else:
 				tmp = dest + ".tmp"
+				verbose(options, "downloading", where + "/" + f, "to", tmp)
 				camera.download_file(where, f, tmp)
 				with open(tmp) as t:
 					os.fsync(t)
 				os.rename(tmp, dest)
 
 def run(options, args):
-	if len(args) > 0:
-		os.chdir(args[0])
 	seen = frozenset(read_record(options))
-	try:
-		os.mkdir(options.destination)
-		if not options.quiet:
-			print("created", options.destination)
-	except OSError as e:
-		if e.errno != errno.EEXIST:
-			raise
 	camera = piggyphoto.camera()
+	verbose(options, camera.abilities)
 	found = []
-	jobs = look_for_canon(camera, "/", seen, found, options)
+	jobs = look_for_dcim(camera, "/", seen, found, options)
+	verbose(options, "jobs:", jobs)
 	download(jobs, camera, options)
 	if not options.quiet:
 		print(len(found), "new files")
@@ -126,18 +148,21 @@ def run(options, args):
 			for f in found:
 				record.write(f + "\n")
 
-
 def main():
-	parser = optparse.OptionParser()
+	parser = optparse.OptionParser(usage="%prog [--help] [options]")
 	parser.add_option("-v", "--verbose", action="store_true", default=False, help="verbose")
 	parser.add_option("-i", "--interactive", action="store_true", default=False, help="interactive mode")
 	parser.add_option("-q", "--quiet", action="store_true", default=False, help="quiet")
 	parser.add_option("-n", "--dryrun", action="store_true", default=False, help="don't do the copies")
 	parser.add_option("-c", "--check", action="store_true", default=False, help="check (verify) already downloaded files")
 	parser.add_option("-w", "--write", action="store_false", default=True, help="don't write record")
-	parser.add_option("-r", "--record", metavar="FILE", default=os.path.expanduser("~/var/photos/seen"), help="record file")
-	parser.add_option("-d", "--destination", metavar="DIRECTORY", default=".", help="destination directory")
+	parser.add_option("-r", "--record", metavar="FILE", default=os.path.expanduser("~/var/photos/seen"), help="record file [%default]")
+	parser.add_option("-d", "--destination", metavar="DIRECTORY", default="", help="destination directory [%default]")
+	parser.add_option("--remote", metavar="DIRECTORY", default="DCIM", help="directory on camera [%default]")
 	(options, args) = parser.parse_args()
+
+	if args:
+		sys.exit(parser.get_usage())
 
 	if not options.interactive:
 		run(options, args)
@@ -155,7 +180,5 @@ def main():
 		sys.stdin.readline()
 		sys.exit(r)
 
-
 if __name__ == '__main__':
 	main()
-
