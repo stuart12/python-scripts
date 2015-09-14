@@ -19,7 +19,7 @@ import time
 
 def myname():
 	return os.path.basename(sys.argv[0])
-	
+
 def fatal(*args):
 	print(myname() + ": fatal:", *args, file=sys.stderr)
 	sys.exit(5)
@@ -40,9 +40,9 @@ def get_best_snapshot_with_album(album, snapshots, options):
 			best_set = cr3
 			best_snapshot = snapshot
 		elif not cr3 <= best_set:
-			sys.error("%s: for album %s snapshot %s has gained (%s) and lost photos from %s: %s" % (myname(), album, snapshot, (cr3 - best_set), best_snapshot, (best_set - cr3)))
+			sys.exit("%s: for album %s snapshot %s has gained (%s) and lost photos from %s: %s" % (myname(), album, snapshot, (cr3 - best_set), best_snapshot, (best_set - cr3)))
 	if best_snapshot is None:
-		sys.error(myname() + ": no snapshot contained" + album)
+		sys.exit(myname() + ": no snapshot contained" + album)
 	return best_snapshot, best_set
 
 def get_first_snapshot_with_album(album, snapshots, options):
@@ -55,15 +55,15 @@ def get_first_snapshot_with_album(album, snapshots, options):
 		except OSError as e:
 			if e.errno != errno.ENOENT:
 				raise
-				
+
 	sys.exit(os.path.basename(sys.argv[0]) + ": album '" + album + "' not found in snapshots '" + options.snapshots + "'")
-	
+
 def getsize(path, options):
-	sz = os.path.getsize(path) 
+	sz = os.path.getsize(path)
 	r = (sz + options.block_size - 1) // options.block_size
 	#print (path, sz, r)
 	return r
-	
+
 def do_album_jpegs(album, options):
 	dir = os.path.join(options.jpgs, album)
 	where = album + "/" + (options.jpg_directory if options.jpg_directory else os.path.basename(options.jpgs)) + "/"
@@ -75,13 +75,13 @@ def do_album_jpegs(album, options):
 
 def do_album(album, snapshots, options):
 	snapshot, photos  = get_best_snapshot_with_album(album, snapshots, options)
-	
+
 	files = do_album_jpegs(album, options)
-	
+
 	raw_dir = album + "/" + options.raw_directory + "/"
 	for file in photos:
 		files.append([raw_dir + file, os.path.join(options.snapshots, snapshot, album, file)])
-	
+
 	current_dir = os.path.join(options.photos, album)
 	for file in os.listdir(current_dir):
 		if file.endswith(options.photo_suffix):
@@ -97,7 +97,7 @@ def do_album(album, snapshots, options):
 		sz += getsize(file[1], options)
 
 	return sz, files
-	
+
 def do_md5sum(filenames, tmp, options):
 	for name, file in filenames:
 		with open(file, "rb") as data:
@@ -111,7 +111,7 @@ def do_md5sum(filenames, tmp, options):
 			if options.verbose > 1:
 				print(v)
 			print(v, file=tmp)
-			
+
 def line_compare(f1, f2):
 	n = 0
 	for l1, l2 in zip(f1, f2):
@@ -121,14 +121,14 @@ def line_compare(f1, f2):
 	if l1 != l2:
 		fatal("bad file compare2")
 	return n
-	
+
 def check_call(cmd):
 	if subprocess.call(cmd) != 0:
 		fatal(cmd[0], "failed")
-def main():	
+def main():
 	parser = optparse.OptionParser(usage="%prog [--help] [options] album ...")
 	parser.disable_interspersed_args()
-	
+
 	parser.add_option("-K", "--keep_MD5", action="store_true", help="leave MD5 file in /tmp")
 	parser.add_option("-x", "--execute", action="store_true", help="make DVD")
 	parser.add_option("-f", "--force", action="store_true", help="don't check that all photos are present")
@@ -137,7 +137,7 @@ def main():
 	parser.add_option("-V", "--volid", help="volume name")
 	parser.add_option("-c", "--nocheck", action="store_true", help="do not check")
 	parser.add_option("--snapshots", default="/disks/snapshots/photos", help="snapshots [%default]")
-	parser.add_option("--jpgs", default="/disks/ws/stuart/converted-photos/2560x2560-90", help="directory containing albums in jpeg format [%default]")
+	parser.add_option("--jpgs", default="/disks/scratch/stuart/converted-photos/2560x2560-90", help="directory containing albums in jpeg format [%default]")
 	parser.add_option("--raw_directory", default="raw", help="subdirectory created for cr2 files in each album [%default]")
 	parser.add_option("--jpg_directory", default=None, help="subdirectory created for jpg files in each album [%default]")
 	parser.add_option("--photos", default=os.path.expanduser("~/photos"), help="directory containing albums [%default]")
@@ -157,12 +157,12 @@ def main():
 	parser.add_option("--mount_attempts", type='int', default=9, help="number of mount attempts [%default]")
 
 	(options, args) = parser.parse_args()
-	
+
 	if not args:
 		parser.error("must have at least one album")
-		
+
 	cdrom_cmd = [ "genisoimage", "-quiet", "-J","-R", "-file-mode", "0644", "-dir-mode", "0755", "-new-dir-mode", "0755", "-uid", "0", "-gid", "0"]
-		
+
 	if options.image:
 		command = cdrom_cmd + [ "-o", options.image ]
 		dvd_size = 4700 * 1000 * 1000
@@ -185,14 +185,14 @@ def main():
 		volid = options.volid
 	if not volid:
 		parser.error("must use the --volid option when more than one album")
-	
+
 	snapshots = os.listdir(options.snapshots)
 	snapshots.sort()
 
 	command.extend([ "-V", volid, "-graft-points" ])
-	
+
 	filenames = []
-	
+
 	used = 0
 	for i in args:
 		sz, names = do_album(i, snapshots, options)
@@ -207,14 +207,14 @@ def main():
 			filenames.extend(names)
 			if not options.quiet:
 				print(i, sz, "sectors", len(names), "files")
-		
+
 	for name, file in filenames:
 		command.append(name+ "=" + file)
-	
+
 	bytes = used * options.block_size
 	if not options.quiet:
 		print(used, "sectors,", bytes, "bytes,", "%.1f %%" % (bytes * 100 / dvd_size))
-		
+
 	if options.execute or options.verbose or options.image:
 		with tempfile.NamedTemporaryFile(mode='w+', prefix='photo-directory-archive', delete=(not options.keep_MD5)) as md5:
 			do_md5sum(filenames, md5, options)
@@ -234,7 +234,7 @@ def main():
 						fatal(command[0], "failed")
 				else:
 					check_call(command)
-					
+
 				subprocess.check_call(["eject", "-t", options.device])
 				for i in range(options.mount_attempts):
 					time.sleep(options.mount_sleep)
@@ -242,7 +242,7 @@ def main():
 						break
 				else:
 					fatal("failed to mount", options.device, "after", options.mount_count, "attempts with a delay of", options.mount_sleep, "seconds")
-				
+
 				md5.seek(0)
 				with open(os.path.join(options.mount_point, options.md5sum_name)) as on_dvd:
 					if line_compare(md5, on_dvd) != len(filenames):
