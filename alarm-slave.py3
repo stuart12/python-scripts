@@ -17,20 +17,62 @@ import argparse
 import sys
 import subprocess
 import collections
-import podcastparser
 import time
 import tempfile
 import datetime
 import urllib.request
 
 # http://zeromq.org/
+# https://stackoverflow.com/questions/22390064/use-dbus-to-just-send-a-message-in-python
+from gi.repository import Gtk
+import dbus
+import dbus.service
+from dbus.mainloop.glib import DBusGMainLoop
 
 def myname():
     return os.path.basename(sys.argv[0])
 
-PlayAble = collections.namedtuple('PlayAble', ['date', 'guid', 'url', 'feed', 'channel', 'title'])
+
+def do_sleep(options):
+    dbus_interface= options.dbus_interface
+
+    class MyDBUSService(dbus.service.Object):
+        def __init__(self, options):
+            bus_name = dbus.service.BusName(options.bus_name, bus=dbus.SessionBus())
+            dbus.service.Object.__init__(self, bus_name, options.object_path)
+            self.options = options
+
+        @dbus.service.method(dbus_interface)
+        def hello(self):
+            """returns the string 'Hello, World!'"""
+            return "Hello, World!"
+
+        @dbus.service.method(dbus_interface)
+        def string_echo(self, s):
+            """returns whatever is passed to it"""
+            return s
+
+        @dbus.service.method(dbus_interface)
+        def Quit(self):
+            """removes this object from the DBUS connection and exits"""
+            self.remove_from_connection()
+            Gtk.main_quit()
+            return
+    DBusGMainLoop(set_as_default=True)
+    myservice = MyDBUSService(options)
+    Gtk.main()
+
+def sleeper(options):
+    pid = os.fork()
+    if pid != 0:
+        return pid
+    do_sleep(options)
+    sys.exit(0)
+
+#PlayAble = collections.namedtuple('PlayAble', ['date', 'guid', 'url', 'feed', 'channel', 'title'])
 
 def wakeup(options):
+    do_sleep(options); sys.exit(0)
     subprocess.call(["alsactl", "--file", os.path.join(options.config, options.on), "restore"])
     subprocess.call([options.player, os.path.join(options.config, options.music)])
     subprocess.call(["amixer", "set", options.volume_control, options.loud])
@@ -47,11 +89,33 @@ def queue(prog, options):
         subprocess.check_call(["at", "-M", options.when], stdin=tmp)
 
 def stop(options):
-    pass
+    #get the session bus
+    bus = dbus.SessionBus()
+    #get the object
+    bus_name = "org.my.test"
+    object_path = "/org/my/test"
+    # http://dbus.freedesktop.org/doc/dbus-python/api/dbus.bus.BusConnection-class.html
+    the_object = bus.get_object(options.bus_name, options.object_path)
+    #get the interface
+    dbus_interface= "org.my.test" 
+    the_interface = dbus.Interface(the_object, options.dbus_interface)
+
+    #call the methods and print the results
+    reply = the_interface.hello()
+    print(reply)
+
+    reply = the_interface.string_echo("test 123")
+    print(reply)
+
+    the_interface.Quit()
 
 def main():
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter,
             description="control alarms")
+
+    parser.add_argument("--bus_name", default="pook.it.test")
+    parser.add_argument("--object_path", default = "/org/my/test")
+    parser.add_argument("--dbus_interface", default="org.my.test")
 
     parser.add_argument("-v", "--verbosity", action="count", default=0, help="increase output verbosity")
     parser.add_argument("--min_play_time", metavar="SECONDS", type=int, default=9,
