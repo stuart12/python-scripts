@@ -26,6 +26,8 @@ def main():
 	parser.add_option("-n", "--norun", action="store_true", help="don't run the rsync")
 	parser.add_option("-S", "--size", default="2560x2560-90", help="size [%default]")
 	parser.add_option("--rsync-path", default=None, help="remote rsync path [%default]")
+	parser.add_option("--size-only", action="store_const", const="--size-only", dest="compare")
+	parser.add_option("--times", action="store_const", const="--times", default="--times", dest="compare")
 	(options, args) = parser.parse_args()
 
 	if args:
@@ -35,11 +37,12 @@ def main():
 	if options.rsync_path:
 		cmd.append("--rsync-path=" + options.rsync_path)
 	cmd.extend(["--exclude", "#*"])
-	cmd.extend(["--copy-unsafe-links", "--times", "--delete", "-Pr", os.path.join(options.source_dir, options.size) + "/", options.machine + ":" + os.path.join(options.dest_dir, "photos-sync/") ])
+	cmd.extend(["--copy-unsafe-links", options.compare, "--delete", "-Pr", os.path.join(options.source_dir, options.size) + "/", options.machine + ":" + os.path.join(options.dest_dir, "photos-sync/") ])
 	if options.verbose:
 		print(" ".join(pipes.quote(c) for c in cmd))
 	if not options.norun:
 		subprocess.check_call(cmd)
+		subprocess.check_call(["ssh", "-n", options.machine, "am broadcast android.intent.action.MEDIA_MOUNTED"])
 
 if __name__ == "__main__":
 	main()
