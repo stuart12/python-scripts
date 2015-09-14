@@ -438,17 +438,6 @@ def create_test_files(source_dir, target_dir, options):
 	return (results, dirs)
 
 def main(argv):
-	transform = (
-		([".cr2", ".cr2.pp3"], ".jpg", ["cr2-to-jpeg", "-o"]),
-		([".cr2"], ".jpg", ["cr2-to-jpeg", "-o"]),
-		([".jpg", ".jpg.pp3"], ".jpg", ["cr2-to-jpeg", "-o"]),
-		([".png", ".png.pp3"], ".jpg", ["cr2-to-jpeg", "-o"]),
-		([".pcd"], ".jpg", ["pcd-to-jpeg", "--output"]),
-		([".flac"], ".ogg", ["oggenc", "--quiet", "--quality=5", "-o"]),
-		([".jpg"], ".jpg", ["resize-jpeg", "--output"]),
-		([".png"], ".jpg", ["png-to-jpeg", "--output"])
-	)
-	link = [ ".mp3", ".mov" ]
 
 	parser = optparse.OptionParser(usage="usage: %prog [--help] [options] source_dir target_dir")
 	parser.set_defaults(check_children=False)
@@ -483,7 +472,7 @@ def main(argv):
 		with open(options.config) as f:
 			config = yaml.safe_load(f)
 	else:
-		sys.exit('mustr have a config g=file at the moment')
+		sys.exit('must have a config file at the moment')
 
 	source_dir = options.source_dir
 	if len(args) >= 1:
@@ -510,6 +499,17 @@ def main(argv):
 
 
 	if options.list:
+		transform = (
+			([".cr2", ".cr2.pp3"], ".jpg", ["cr2-to-jpeg", "-o"]),
+			([".cr2"], ".jpg", ["cr2-to-jpeg", "-o"]),
+			([".jpg", ".jpg.pp3"], ".jpg", ["cr2-to-jpeg", "-o"]),
+			([".png", ".png.pp3"], ".jpg", ["cr2-to-jpeg", "-o"]),
+			([".pcd"], ".jpg", ["pcd-to-jpeg", "--output"]),
+			([".flac"], ".ogg", ["oggenc", "--quiet", "--quality=5", "-o"]),
+			([".jpg"], ".jpg", ["resize-jpeg", "--output"]),
+			([".png"], ".jpg", ["png-to-jpeg", "--output"])
+		)
+		link = [ ".mp3", ".mov" ]
 		mapping = list(transform)
 		input_suffixes = frozenset([f[0] for f in mapping])
 		for i in link:
