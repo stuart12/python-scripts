@@ -31,17 +31,23 @@ def myname():
 PlayAble = collections.namedtuple('PlayAble', ['date', 'guid', 'url', 'feed', 'channel', 'title'])
 
 def wakeup(options):
-    subprocess.call(["alsactl", "--file", os.path.join(options.root, options.on), "restore")
-    subprocess.call([options.player, os.path.join(options.root, options.music))
-    subprocess.call(["amixer", "set", options.volume_control, options.volume)
-    subprocess.call([options.player, os.path.join(options.root, options.music))
-    subprocess.call(["alsactl", "--file", os.path.join(options.root, options.off), "restore")
+    subprocess.call(["alsactl", "--file", os.path.join(options.config, options.on), "restore"])
+    subprocess.call([options.player, os.path.join(options.config, options.music)])
+    subprocess.call(["amixer", "set", options.volume_control, options.loud])
+    subprocess.call([options.player, os.path.join(options.config, options.music)])
+    subprocess.call(["alsactl", "--file", os.path.join(options.config, options.off), "restore"])
 
 def queue(prog, options):
-    with tmp as tempfile.TemporaryFile("w+"):
+    subprocess.check_call(["alsactl", "--file", os.path.join(options.config, options.on), "restore"])
+    subprocess.check_call([options.player, "--ss=60", "--endpos=5", os.path.join(options.config, options.music)])
+    subprocess.check_call(["alsactl", "--file", os.path.join(options.config, options.off), "restore"])
+    with tempfile.TemporaryFile("w+") as tmp:
         print(prog, "--wakeup", out=tmp)
         tmp.seek(0)
         subprocess.check_call(["at", "-M", options.when], stdin=tmp)
+
+def stop(options):
+    pass
 
 def main():
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter,
@@ -51,6 +57,7 @@ def main():
     parser.add_argument("--min_play_time", metavar="SECONDS", type=int, default=9,
             help="minimum to consider a podcast played")
     parser.add_argument("--player", metavar="COMMAND", default="mplayer", help="command to play music")
+    parser.add_argument("--volume_control", metavar="SCONTROL", default="PCM", help="mixer control")
     parser.add_argument("--music", metavar="FILE", default="alarm.wav", help="music to play")
     parser.add_argument("--loud", metavar="VOLUME", default="255", help="volume for second play")
     parser.add_argument("--datefmt", metavar="STRFTIME", default="%d/%m/%Y", help="strftime format for dates")
