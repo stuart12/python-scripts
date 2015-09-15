@@ -19,6 +19,7 @@ import subprocess
 import tempfile
 import time
 import shlex
+import syslog
 
 # http://zeromq.org/
 # https://stackoverflow.com/questions/22390064/use-dbus-to-just-send-a-message-in-python
@@ -35,12 +36,25 @@ import shlex
 def myname():
     return os.path.basename(sys.argv[0])
 
+def error(options, *args):
+    if options.syslog:
+        syslog.syslog("error: " + " ".join(args))
+    else:
+        print(myname() + ": error:", *args, file=sys.stderr)
+    sys.exit(9)
+
 def verbose(options, *args):
     if options.verbosity > 0:
-        print(*args, file=sys.stderr)
+        if options.syslog:
+            syslog.syslog(" ".join(args))
+        else:
+            print(myname() + ":", *args, file=sys.stderr)
+
+def format_cmd(cmd):
+    return ' '.join(shlex.quote(c) for c in cmd)
 
 def print_cmd(options, cmd):
-    verbose(options, "run", ' '.join(shlex.quote(c) for c in cmd))
+    verbose(options, "run", format_cmd(cmd))
     return cmd
 
 def do_sleep(options):
@@ -91,7 +105,7 @@ def run_mplayer(stopper, options):
     if os.wait() == stopper:
         if status == 0:
             os.kill(mp.pid, signal.SIGTERM)
-            subprocess.call(["alsactl", "--file", os.path.join(options.config, options.off), "restore"])
+            subprocess.call([options.alsactl, "--file", os.path.join(options.config, options.off), "restore"])
             os.kill(mp.pid, signal.SIGKILL)
             mp.wait()
             return -1
@@ -102,12 +116,16 @@ def run_mplayer(stopper, options):
 def check_call(options, cmd, **kw):
     if options.verbosity > 0:
         print_cmd(options, cmd)
-    return subprocess.check_call(cmd, **kw)
+    r = subprocess.call(cmd, **kw)
+    if r:
+        error(options, "failed (%d):" % r, format_cmd(cmd))
 
 def call(options, cmd, **kw):
-    if options.verbosity > 0:
-        print_cmd(options, cmd)
-    return subprocess.call(cmd, **kw)
+    print_cmd(options, cmd)
+    r = subprocess.call(cmd, **kw)
+    if r:
+        verbose(options, "failed (%d):" % r, format_cmd(cmd))
+    return r
 
 def get_trigger(options):
     return os.path.join(options.config, options.trigger)
@@ -131,23 +149,23 @@ def wakeup(options):
             verbose(options, "trigger old, skipping", get_trigger(options))
         else:
             mplayer = mplayer_cmd(options)
-            call(options, ["alsactl", "--file", os.path.join(options.config, options.on), "restore"])
+            call(options, [options.alsactl, "--file", os.path.join(options.config, options.on), "restore"])
             if call(options, mplayer) == 0:
                 call(options, ["amixer", "-q", "set", options.volume_control, options.loud])
                 call(options, mplayer)
-            call(options, ["alsactl", "--file", os.path.join(options.config, options.off), "restore"])
+            call(options, [options.alsactl, "--file", os.path.join(options.config, options.off), "restore"])
 
 def queue(options):
     with open(get_trigger(options), "w") as trig:
         os.utime(trig.fileno(), None)
     verbose(options, "queue", get_trigger(options))
-    check_call(options, ["alsactl", "--file", os.path.join(options.config, options.on), "restore"])
+    check_call(options, [options.alsactl, "--file", os.path.join(options.config, options.on), "restore"])
     mplayer = mplayer_cmd(options, ["--ss=" + options.test_start, "--endpos=" + options.test_play_time])
     check_call(options, mplayer)
-    check_call(options, ["alsactl", "--file", os.path.join(options.config, options.off), "restore"])
+    check_call(options, [options.alsactl, "--file", os.path.join(options.config, options.off), "restore"])
 
 def stop(options):
-    check_call(options, ["pkill", "-u", str(os.getuid()), options.player])
+    call(options, ["pkill", "-u", str(os.getuid()), options.player])
 
 def main():
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter,
@@ -163,6 +181,7 @@ def main():
     parser.add_argument("--test_play_time", metavar="TIMESPEC", default='2.1',
             help="time to play during test")
     parser.add_argument("--player", metavar="COMMAND", default="mplayer", help="command to play music")
+    parser.add_argument("--alsactl", metavar="COMMAND", default="/usr/sbin/alsactl", help="command to load alsa config")
     parser.add_argument("--volume_control", metavar="SCONTROL", default="PCM", help="mixer control")
     parser.add_argument("--music", metavar="FILE", default="alarm.mp3", help="music to play")
     parser.add_argument("--trigger", metavar="FILE", default="trigger", help="file to touch to play")
@@ -173,18 +192,29 @@ def main():
     parser.add_argument("--off", metavar="FILE", default="off.state", help="alsa control file to switch sound off")
     parser.add_argument("--config", metavar="DIRECTORY", default=os.path.expanduser("~/lib/alarm"),
             help="default directory for conf files")
-    parser.add_argument('-Q', "--queue", action="store_true", help="program alarm")
+    parser.add_argument('-a', "--activate", action="store_true", help="program alarm")
     parser.add_argument("-s", "--stop", action="store_true", help="stop alarm")
-
-    parser.add_argument('urls', nargs=argparse.REMAINDER, help='file to convert')
+    parser.add_argument("--syslog", action="store_true", help="syslog messages")
 
     options = parser.parse_args()
-    if options.queue:
-        queue(options)
-    elif options.stop:
-        stop(options)
+    if options.syslog:
+        syslog.openlog(myname())
+        syslog.syslog("start: " + " ".join(sys.argv[1:]))
+    try:
+        if options.activate:
+            queue(options)
+        elif options.stop:
+            stop(options)
+        else:
+            wakeup(options)
+    except Exception as x:
+        if options.syslog:
+            error(options, "Exception %s" % x)
+        else:
+            raise
     else:
-        wakeup(options)
+        if options.syslog:
+            syslog.syslog("end")
 
 if __name__ == "__main__":
     main()
