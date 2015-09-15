@@ -17,23 +17,38 @@ import argparse
 import sys
 import subprocess
 import tempfile
+import time
+import shlex
 
 # http://zeromq.org/
 # https://stackoverflow.com/questions/22390064/use-dbus-to-just-send-a-message-in-python
-from gi.repository import Gtk
-import dbus
-import dbus.service
-from dbus.mainloop.glib import DBusGMainLoop
+
+# apt-get install gir1.2-gtksource-3.0
+#from gi.repository import Gtk
+
+# sudo apt-get install python3-dbus
+#import dbus
+
+#import dbus.service
+#from dbus.mainloop.glib import DBusGMainLoop
 
 def myname():
     return os.path.basename(sys.argv[0])
+
+def verbose(options, *args):
+    if options.verbosity > 0:
+        print(*args, file=sys.stderr)
+
+def print_cmd(options, cmd):
+    verbose(options, "run", ' '.join(shlex.quote(c) for c in cmd))
+    return cmd
 
 def do_sleep(options):
     dbus_interface= options.dbus_interface
 
     class MyDBUSService(dbus.service.Object):
         def __init__(self, options):
-            bus_name = dbus.service.BusName(options.bus_name, bus=dbus.SessionBus())
+            bus_name = dbus.service.BusName(options.bus_name, bus=dbus.SystemBus())
             dbus.service.Object.__init__(self, bus_name, options.object_path)
             self.options = options
 
@@ -51,11 +66,15 @@ def do_sleep(options):
         def Quit(self):
             """removes this object from the DBUS connection and exits"""
             self.remove_from_connection()
-            Gtk.main_quit()
+            #Gtk.main_quit()
             return
     DBusGMainLoop(set_as_default=True)
     myservice = MyDBUSService(options)
-    Gtk.main()
+    #Gtk.main()
+    import gobject
+
+    loop = gobject.MainLoop()
+    loop.run()
 
 def sleeper(options):
     pid = os.fork()
@@ -67,7 +86,7 @@ def sleeper(options):
 def run_mplayer(stopper, options):
     moptions = ['--quiet', '--no-consolecontrols']
     mplayer = [options.player] + moptions + [os.path.join(options.config, options.music)]
-    mp = subprocess.Popen(mplayer)
+    mp = subprocess.Popen(print_cmd(options, mplayer))
     pid, status = os.wait()
     if os.wait() == stopper:
         if status == 0:
@@ -80,48 +99,55 @@ def run_mplayer(stopper, options):
         return 0
     return stopper
 
-def wakeup(options):
-    stopper = do_sleep(options)
-    subprocess.call(["alsactl", "--file", os.path.join(options.config, options.on), "restore"])
-    stopper = run_mplayer(stopper, options)
-    if stopper >= 0:
-        subprocess.call(["amixer", "set", options.volume_control, options.loud])
-        stopper = run_mplayer(stopper, options)
-        if stopper >= 0:
-            subprocess.call(["alsactl", "--file", os.path.join(options.config, options.off), "restore"])
-        if stopper > 0:
-            os.kill(stopper, signal.SIGKILL)
-            os.waitpid(stopper, 0)
+def check_call(options, cmd, **kw):
+    if options.verbosity > 0:
+        print_cmd(options, cmd)
+    return subprocess.check_call(cmd, **kw)
 
-def queue(prog, options):
-    subprocess.check_call(["alsactl", "--file", os.path.join(options.config, options.on), "restore"])
-    subprocess.check_call([options.player, "--ss=60", "--endpos=%d" % options.test_play_time] + moptions + [os.path.join(options.config, options.music)])
-    subprocess.check_call(["alsactl", "--file", os.path.join(options.config, options.off), "restore"])
-    with tempfile.TemporaryFile("w+") as tmp:
-        print(prog, "--wakeup", file=tmp)
-        tmp.seek(0)
-        subprocess.check_call(["at", "-M", options.when], stdin=tmp)
+def call(options, cmd, **kw):
+    if options.verbosity > 0:
+        print_cmd(options, cmd)
+    return subprocess.call(cmd, **kw)
+
+def get_trigger(options):
+    return os.path.join(options.config, options.trigger)
+
+def mplayer_cmd(options, extra=[]):
+    moptions = ['--no-consolecontrols']
+    if options.verbosity == 0:
+        moptions.append('--really-quiet')
+    elif options.verbosity == 1:
+        moptions.append('--quiet')
+    return [options.player] + moptions + extra + [os.path.join(options.config, options.music)]
+
+def wakeup(options):
+    try:
+        stat = os.stat(get_trigger(options))
+    except FileNotFoundError:
+        verbose(options, "no trigger, skipping", get_trigger(options))
+        pass
+    else:
+        if stat.st_mtime < time.time() - options.age * 60 * 60:
+            verbose(options, "trigger old, skipping", get_trigger(options))
+        else:
+            mplayer = mplayer_cmd(options)
+            call(options, ["alsactl", "--file", os.path.join(options.config, options.on), "restore"])
+            if call(options, mplayer) == 0:
+                call(options, ["amixer", "-q", "set", options.volume_control, options.loud])
+                call(options, mplayer)
+            call(options, ["alsactl", "--file", os.path.join(options.config, options.off), "restore"])
+
+def queue(options):
+    with open(get_trigger(options), "w") as trig:
+        os.utime(trig.fileno(), None)
+    verbose(options, "queue", get_trigger(options))
+    check_call(options, ["alsactl", "--file", os.path.join(options.config, options.on), "restore"])
+    mplayer = mplayer_cmd(options, ["--ss=" + options.test_start, "--endpos=" + options.test_play_time])
+    check_call(options, mplayer)
+    check_call(options, ["alsactl", "--file", os.path.join(options.config, options.off), "restore"])
 
 def stop(options):
-    #get the session bus
-    bus = dbus.SessionBus()
-    #get the object
-    bus_name = "org.my.test"
-    object_path = "/org/my/test"
-    # http://dbus.freedesktop.org/doc/dbus-python/api/dbus.bus.BusConnection-class.html
-    the_object = bus.get_object(options.bus_name, options.object_path)
-    #get the interface
-    dbus_interface= "org.my.test" 
-    the_interface = dbus.Interface(the_object, options.dbus_interface)
-
-    #call the methods and print the results
-    reply = the_interface.hello()
-    print(reply)
-
-    reply = the_interface.string_echo("test 123")
-    print(reply)
-
-    the_interface.Quit()
+    check_call(options, ["pkill", "-u", str(os.getuid()), options.player])
 
 def main():
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter,
@@ -132,26 +158,29 @@ def main():
     parser.add_argument("--dbus_interface", default="org.my.test")
 
     parser.add_argument("-v", "--verbosity", action="count", default=0, help="increase output verbosity")
-    parser.add_argument("--test_play_time", metavar="SECONDS", type=int, default=4,
+    parser.add_argument("--test_start", metavar="TIMESPEC", default='43.8',
+            help="start position during test")
+    parser.add_argument("--test_play_time", metavar="TIMESPEC", default='2.1',
             help="time to play during test")
     parser.add_argument("--player", metavar="COMMAND", default="mplayer", help="command to play music")
     parser.add_argument("--volume_control", metavar="SCONTROL", default="PCM", help="mixer control")
     parser.add_argument("--music", metavar="FILE", default="alarm.mp3", help="music to play")
+    parser.add_argument("--trigger", metavar="FILE", default="trigger", help="file to touch to play")
     parser.add_argument("--loud", metavar="VOLUME", default="255", help="volume for second play")
+    parser.add_argument("--age", metavar="HOURS", type=float, default=12, help="maximum age for trigger file")
     parser.add_argument("--datefmt", metavar="STRFTIME", default="%d/%m/%Y", help="strftime format for dates")
     parser.add_argument("--on", metavar="FILE", default="on.state", help="alsa control file to switch sound on")
     parser.add_argument("--off", metavar="FILE", default="off.state", help="alsa control file to switch sound off")
     parser.add_argument("--config", metavar="DIRECTORY", default=os.path.expanduser("~/lib/alarm"),
             help="default directory for conf files")
-    parser.add_argument('-w', "--when", metavar="TIMESPEC", help="queue wakeup")
-    parser.add_argument('-W', "--wakeup", action="store_true", help="wakeup now")
-    parser.add_argument("--stop", action="store_true", help="stop alarm")
+    parser.add_argument('-Q', "--queue", action="store_true", help="program alarm")
+    parser.add_argument("-s", "--stop", action="store_true", help="stop alarm")
 
     parser.add_argument('urls', nargs=argparse.REMAINDER, help='file to convert')
 
     options = parser.parse_args()
-    if options.when:
-        queue(sys.argv[0], options)
+    if options.queue:
+        queue(options)
     elif options.stop:
         stop(options)
     else:
