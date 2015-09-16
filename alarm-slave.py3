@@ -183,7 +183,7 @@ def main():
     parser.add_argument("--player", metavar="COMMAND", default="mplayer", help="command to play music")
     parser.add_argument("--alsactl", metavar="COMMAND", default="/usr/sbin/alsactl", help="command to load alsa config")
     parser.add_argument("--volume_control", metavar="SCONTROL", default="PCM", help="mixer control")
-    parser.add_argument("--music", metavar="FILE", default="alarm.mp3", help="music to play")
+    parser.add_argument("--music", metavar="FILE", default="alarm", help="music file to play")
     parser.add_argument("--trigger", metavar="FILE", default="trigger", help="file to touch to play")
     parser.add_argument("--loud", metavar="VOLUME", default="255", help="volume for second play")
     parser.add_argument("--age", metavar="HOURS", type=float, default=12, help="maximum age for trigger file")
@@ -199,7 +199,7 @@ def main():
     options = parser.parse_args()
     if options.syslog:
         syslog.openlog(myname())
-        syslog.syslog("start: " + " ".join(sys.argv[1:]))
+        verbose(options, "start: " + format_cmd(sys.argv[1:]))
     try:
         if options.activate:
             queue(options)
@@ -214,7 +214,7 @@ def main():
             raise
     else:
         if options.syslog:
-            syslog.syslog("end")
+            verbose(options, "end")
 
 if __name__ == "__main__":
     main()
