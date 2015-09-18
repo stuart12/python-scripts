@@ -191,7 +191,12 @@ def main():
     parser.add_argument("--on", metavar="FILE", default="on.state", help="alsa control file to switch sound on")
     parser.add_argument("--off", metavar="FILE", default="off.state", help="alsa control file to switch sound off")
     parser.add_argument("--config", metavar="DIRECTORY", default=os.path.expanduser("~/lib/alarm"),
-            help="default directory for conf files")
+            help="default directory for configuration files")
+    parser.add_argument("--led_directory", metavar="DIRECTORY",
+            default="/sys/bus/platform/devices/leds-gpio/leds/gta02:red:aux", help="LED control directory")
+    parser.add_argument("--led_control", metavar="FILE", default="brightness", help="file controlling LED brightness")
+    parser.add_argument("--led_max", metavar="FILE", default="max_brightness",
+            help="file containing maximum LED brightness value")
     parser.add_argument('-a', "--activate", action="store_true", help="program alarm")
     parser.add_argument("-s", "--stop", action="store_true", help="stop alarm")
     parser.add_argument("--syslog", action="store_true", help="syslog messages")
