@@ -21,9 +21,21 @@ import stat
 import tempfile
 import shutil
 import yaml
+import copy
 
 class MyError(Exception):
 	pass
+
+# https://stackoverflow.com/questions/823196/yaml-merge-in-python
+def merge_yaml(user, default):
+	user = copy.deepcopy(user)
+	if isinstance(user,dict) and isinstance(default,dict):
+		for k, v in default.items():
+			if k not in user:
+				user[k] = v
+			else:
+				user[k] = merge_yaml(user[k],v)
+	return user
 
 def merge_dicts(*dict_args):
 	'''
@@ -35,7 +47,6 @@ def merge_dicts(*dict_args):
 	for dictionary in dict_args:
 		result.update(dictionary)
 	return result
-
 
 def check_children(running, options):
 	if options.check_children:
@@ -437,6 +448,19 @@ def create_test_files(source_dir, target_dir, options):
 	make_dir(os.path.join(target_dir, "bad"), options)
 	return (results, dirs)
 
+def read_include(config_file, options):
+	with open(config_file) as f:
+		config = yaml.safe_load(f)
+	for i in config.get("include", []):
+		c2 = read_include(os.path.join(os.path.dirname(config_file), i), options)
+		config = merge_yaml(config, c2)
+	return config
+
+
+def read_config(config_file, options):
+	config = read_include(config_file, options)
+	return config
+
 def main(argv):
 
 	parser = optparse.OptionParser(usage="usage: %prog [--help] [options] source_dir target_dir")
@@ -469,8 +493,7 @@ def main(argv):
 		sys.exit(1)
 
 	if options.config:
-		with open(options.config) as f:
-			config = yaml.safe_load(f)
+		config = read_config(options.config, options)
 	else:
 		sys.exit('must have a config file at the moment')
 
