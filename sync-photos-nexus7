@@ -15,31 +15,38 @@
 import optparse
 import os
 import subprocess
-import pipes
+import shlex
 
 def main():
-	parser = optparse.OptionParser(usage="usage: %prog [options] [--help]")
-	parser.add_option("--machine", default="nexus7", help="where to send to [%default]")
-	parser.add_option("-s", "--source_dir", default=os.path.expanduser("~/ws/converted-photos"), help="source directory [%default]")
-	parser.add_option("--dest_dir", default="/mnt/shell/emulated/0/Stuart/", help="destination directory [%default]")
+	parser = optparse.OptionParser(usage="usage: %prog [options] [--help] [machine]")
+	parser.add_option("--machine", default="windy", help="where to send to [%default]")
+	parser.add_option("-s", "--source_dir", default="/disks/scratch/stuart/converted-photos2", help="source directory [%default]")
+	parser.add_option("--dest_dir", default="/storage/sdcard1/Stuart_Pook/rsync", help="destination directory [%default]")
 	parser.add_option("-v", "--verbose", action="store_true", help="verbose")
 	parser.add_option("-n", "--norun", action="store_true", help="don't run the rsync")
-	parser.add_option("-S", "--size", default="2560x2560-90", help="size [%default]")
+	parser.add_option("-S", "--size", help="size [%default]")
 	parser.add_option("--rsync-path", default=None, help="remote rsync path [%default]")
 	parser.add_option("--size-only", action="store_const", const="--size-only", dest="compare")
-	parser.add_option("--times", action="store_const", const="--times", default="--times", dest="compare")
+	parser.add_option("--times", action="store_const", const="--times", default="--size-only", dest="compare")
 	(options, args) = parser.parse_args()
 
-	if args:
-		parser.error("no arguments allowed")
+	if len(args) > 1:
+		parser.error("only 1 argument allowed")
+	machine = args[0] if len(args) else options.machine
+	size = options.size if options.size else machine
 
 	cmd = ["rsync"]
 	if options.rsync_path:
 		cmd.append("--rsync-path=" + options.rsync_path)
 	cmd.extend(["--exclude", "#*"])
-	cmd.extend(["--copy-unsafe-links", options.compare, "--delete", "-Pr", os.path.join(options.source_dir, options.size) + "/", options.machine + ":" + os.path.join(options.dest_dir, "photos-sync/") ])
-	if options.verbose:
-		print(" ".join(pipes.quote(c) for c in cmd))
+	cmd.append("--copy-unsafe-links")
+	cmd.append(options.compare)
+	cmd.append("--delete")
+	cmd.append("-Pr")
+	cmd.append(os.path.join(options.source_dir, size) + "/")
+	cmd.append(machine + ":" + os.path.join(options.dest_dir, "photos-sync/"))
+	if options.verbose or options.norun:
+		print(" ".join(shlex.quote(c) for c in cmd))
 	if not options.norun:
 		subprocess.check_call(cmd)
 		subprocess.check_call(["ssh", "-n", options.machine, "am broadcast android.intent.action.MEDIA_MOUNTED"])
