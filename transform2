@@ -22,6 +22,18 @@ import tempfile
 import shutil
 import yaml
 import copy
+import collections
+
+def myname():
+	return os.path.basename(sys.argv[0])
+
+def verbose(options, *args):
+	if options.verbose:
+		print(myname() + ":", *args, file=sys.stderr)
+
+def error(options, *args):
+	print(myname() + ": error:", *args, file=sys.stderr)
+	sys.exit(67)
 
 class MyError(Exception):
 	pass
@@ -105,6 +117,10 @@ def walk(dir, extra, files, suffixes, options, read_all_files):
 				readable_names.append(d)
 		dirnames[:] = readable_names
 
+def quiet(options, *args):
+	if not options.quiet:
+		print(*args, file=sys.stderr)
+
 def reap(done, ntasks, running, options):
 	assert len(running)
 	while True:
@@ -134,10 +150,8 @@ def reap(done, ntasks, running, options):
 				if options.verbose:
 					print("mv", result[0], result[1], file=sys.stderr)
 				os.rename(result[0], result[1])
-				if not options.quiet:
-					done += 1
-					n = str(ntasks)
-					print("%*d/%s (%3.0f%%) %s" % (len(n), done, n, done * 100.0 / ntasks, result[1][-options.max_filename_characters:]))
+				done += 1
+				quiet(options, "%*d/%s (%3.0f%%) %s" % (len(str(n)), done, ntasks, done * 100.0 / ntasks, result[1][-options.max_filename_characters:]))
 			break
 		else:
 			raise MyError("unexpected child", pid, status)
@@ -157,9 +171,7 @@ def start_task(command, outfile, infiles, running, environment, user_options, op
 	c += command[1:]
 	com = " ".join([str(x) for x in c])
 
-	if options.verbose:
-		print(env, com)
-
+	verbose(options, "starting:", env, com)
 
 	proc = subprocess.Popen(com, env=merge_dicts(os.environ, env), shell=True)
 # keep the Popen object in scope otherwise its destructor will wait for the child
@@ -178,16 +190,14 @@ class directory_maker():
 			try:
 				os.stat(dir)
 			except OSError:
-				if self.options.verbose:
-					print("mkdir -p", dir)
+				verbose(self.options.verbose, "mkdir -p", dir)
 				os.makedirs(dir)
 
-def execute_tasks(tasks, linked, environment, user_options, options):
+def execute_tasks(tasks, linked, options):
 	done = 0
 	running = dict()
 	ntasks = len(tasks)
-	if not options.quiet:
-		print(linked, "files linked,", ntasks, "tasks to run on", options.ncpus, "cpus")
+	quiet(options, linked, "files linked,", ntasks, "tasks to run on", options.ncpus, "cpus")
 	try:
 		for task in tasks:
 			if len(running) == options.ncpus:
@@ -197,7 +207,7 @@ def execute_tasks(tasks, linked, environment, user_options, options):
 			if options.dryrun:
 				print(task)
 			else:
-				start_task(task[0], task[1], task[2], running, environment, user_options, options)
+				start_task(task.command, task.outfile, task.infiles, running, task.env, task.opts, options)
 
 		while len(running):
 			reap(done, ntasks, running, options)
@@ -231,9 +241,16 @@ def have_all_sources_for_pattern(suffixes, source, sources, options):
 				return base, found
 	return None, None
 
-def execute(source_filenames, target_filename, match, options):
-	if options.verbose:
-		print("run", target_filename, source_filenames)
+class ExecutionFactory:
+	def __init__(self, opts, env, options):
+		self.env = env
+		self.opts = opts
+		self.Execution = collections.namedtuple('Execution', ['command', 'outfile', 'infiles', 'opts', 'env'])
+	def create(self, cmd, outfile, infiles):
+		return self.Execution(command=cmd, outfile=outfile, infiles=infiles, opts=self.opts, env=self.env)
+
+def execute(source_filenames, target_filename, match, exfactory, options):
+	verbose(options, "run", target_filename, source_filenames)
 	if options.touch:
 		try:
 			os.utime(target_filename)
@@ -243,7 +260,7 @@ def execute(source_filenames, target_filename, match, options):
 				raise
 			os.close(os.open(target_filename, os.O_CREAT | os.O_WRONLY, 0o666))
 		return []
-	return [(match['command'], target_filename, source_filenames)]
+	return [exfactory.create(match['command'], outfile=target_filename, infiles=source_filenames)]
 
 def stat_path(fn, options):
 	target_filename = os.path.join(fn)
@@ -263,7 +280,7 @@ def lstat_path(fn, options):
 			raise
 		return None
 
-def execute_if_required(source_basenames, target_filename, match, current, in_root, target_stat, options):
+def execute_if_required(source_basenames, target_filename, match, current, in_root, target_stat, exfactory, options):
 	source_filenames = []
 	for source_basename in source_basenames:
 		source_filenames.append(os.path.join(in_root, current, source_basename))
@@ -279,11 +296,11 @@ def execute_if_required(source_basenames, target_filename, match, current, in_ro
 			return []
 
 	if target_stat is None:
-		return execute(source_filenames, target_filename, match, options)
+		return execute(source_filenames, target_filename, match, exfactory, options)
 	else:
 		for source_stat in source_stats:
 			if source_stat[stat.ST_MTIME] > target_stat[stat.ST_MTIME]:
-				return execute(source_filenames, target_filename, match, options)
+				return execute(source_filenames, target_filename, match, exfactory, options)
 		return []
 
 def mkdir(fn, options):
@@ -343,7 +360,7 @@ def is_missing(fn, options):
 		os.close(fd)
 	return False
 
-def transformer2(current, in_root, out_root, mapping, allowed_files, allowed_directories, options):
+def transformer2(current, in_root, out_root, mapping, allowed_files, allowed_directories, exfactory, options):
 	tasks = []
 	targets = set(os.listdir(os.path.join(out_root, current)))
 	remaining = set()
@@ -360,7 +377,7 @@ def transformer2(current, in_root, out_root, mapping, allowed_files, allowed_dir
 					targets.remove(fn)
 				else:
 					mkdir(target_filename, options)
-				tasks.extend(transformer2(new_current, in_root, out_root, mapping, allowed_files, allowed_directories, options))
+				tasks.extend(transformer2(new_current, in_root, out_root, mapping, allowed_files, allowed_directories, exfactory, options))
 		else:
 			remaining.add(fn)
 
@@ -391,7 +408,7 @@ def transformer2(current, in_root, out_root, mapping, allowed_files, allowed_dir
 								target_stat = os.lstat(target_filename)
 						else:
 							target_stat = None
-						tasks.extend(execute_if_required(matched, target_filename, m, current, in_root, target_stat, options))
+						tasks.extend(execute_if_required(matched, target_filename, m, current, in_root, target_stat, exfactory=exfactory, options=options))
 					elif target in targets:
 						raise MyError("target is done but still in targets, target=%s done=%s targets=%s" % (target,done,targets))
 	if targets & done:
@@ -399,6 +416,10 @@ def transformer2(current, in_root, out_root, mapping, allowed_files, allowed_dir
 	remaining_targets(targets, current, out_root, options)
 	return tasks
 
+def transformer(current, in_root, out_root, config, options):
+	exfactory = ExecutionFactory(env=config.get('environment', {}), opts=config.get('options', {}), options=options)
+	mapping = config.get('transformations')
+	return transformer2(current, in_root, out_root, mapping, None, None, exfactory, options)
 
 def count_cpus():
 	n = 0;
@@ -452,45 +473,100 @@ def read_include(config_file, options):
 	with open(config_file) as f:
 		config = yaml.safe_load(f)
 	for i in config.get("include", []):
-		c2 = read_include(os.path.join(os.path.dirname(config_file), i), options)
+		path = os.path.join(os.path.dirname(config_file), i)
+		verbose(options, "reading config file", path)
+		c2 = read_include(path, options)
 		config = merge_yaml(config, c2)
 	return config
 
+class ConfigWrapper:
+	nodefault = []
+	def __init__(self, config, fname, options):
+		self.config = config
+		self.fname = fname
+		self.options = options
+	def file_name(self):
+		return self.fname
+	def get(self, key, default=nodefault):
+		if default == ConfigWrapper.nodefault:
+			try:
+				return self.config[key]
+			except KeyError as ex:
+				error(self.options, "key", ex, "not found in", self.fname)
+		else:
+			return self.config.get(key, default)
+	def wrap(self, key):
+		return ConfigWrapper(self.get(key), self.fname, self.options)
 
 def read_config(config_file, options):
-	config = read_include(config_file, options)
+	config = ConfigWrapper(read_include(config_file, options), config_file, options)
 	return config
 
-def main(argv):
+def get_destination(opts, options):
+	dest = opts.get('destination_path', None)
+	if not dest:
+		base = opts.get('destination', None)
+		if not base:
+			base = os.path.basename(opts.file_name()).split('.')[0]
+		dest = os.path.join(opts.get('destination_directory'), base)
+	return dest
 
+def get_tasks(config_file, options, check_destination=False):
+	config = read_config(os.path.join(options.transform_dir, config_file), options)
+	opts = config.wrap('config')
+	target_dir = get_destination(opts, options)
+	if not check_destination or os.path.exists(target_dir):
+		source_dir = os.path.expanduser(opts.get('source'))
+		verbose(options, source_dir, "->", target_dir)
+		transforms = config.get('transformations')
+		if options.print_outdir:
+			print(target_dir)
+		return transformer("", source_dir, target_dir, config, options)
+	return []
+
+def main(argv):
 	parser = optparse.OptionParser(usage="usage: %prog [--help] [options] source_dir target_dir")
 	parser.set_defaults(check_children=False)
 	parser.disable_interspersed_args()
 	parser.add_option("-v", "--verbose", action="store_true", help="verbose messages")
 	parser.add_option("-n", "--dryrun", action="store_true", help="dryrun")
-	parser.add_option("-i", "--interactive", action="store_true", help="interactive mode")
-	parser.add_option("-l", "--list", action="store_true", help="read list from stdin")
+	#parser.add_option("-i", "--interactive", action="store_true", help="interactive mode")
+	##parser.add_option("-l", "--list", action="store_true", help="read list from stdin")
 	parser.add_option("--touch", action="store_true", help="touch rather than running command")
+	parser.add_option("-P", "--print_outdir", action="store_true", help="print output directory")
 	parser.add_option("--nodelete", action="store_true", help="do not delete any files")
 	parser.add_option("-D", "--delete", action="store_true", help="delete old files")
-	parser.add_option("--max_filename_characters", type="int", default=60, metavar="length", help="maximum number characters of the file name to print [%default]")
-	parser.add_option("-C", "--delete_sleep", action="store_true", help="delete old files after sleep")
+	parser.add_option("--max_filename_characters", type="int", default=60,
+			metavar="LENGTH",
+			help="maximum number characters of the file name to print [%default]")
 	parser.add_option("-q", "--quiet", action="store_true",help="silence [%default]")
-	parser.add_option("--test", action="store_true",help="create files and test [%default]")
+	#parser.add_option("--test", action="store_true",help="create files and test [%default]")
 	parser.add_option("--check_children", action="store_true", dest="check_children", help="check all children are alive [%default]")
 	parser.add_option("--no_check_children", action="store_false", dest="check_children", help="do not check all children are alive [%default]")
 	parser.add_option("-p", "--tmp_prefix", default="#", help="prefix for temporary files [%default]")
-	parser.add_option("-t", "--target_dir", default=None, help="target directory")
-	parser.add_option("-c", "--config", default=None, help="YAML config file")
-	parser.add_option("-s", "--source_dir", default=None, help="source directory")
+	#parser.add_option("-t", "--target_dir", default=None, help="target directory")
+	#parser.add_option("-c", "--config", default=None, help="YAML config file")
+	#parser.add_option("-s", "--source_dir", default=None, help="source directory")
 	parser.add_option("--ncpus", default=1, type='int', help="number of cpus to use [%default]")
 	parser.add_option("-F", "--file_permissions", default=0o440, type='int', help="files must have at least these permissions [%default]")
 	parser.add_option("--directory_permissions", default=0o750, type='int', help="directories must have at least these permissions [%default]")
+	parser.add_option("--transform_dir", default=os.path.expanduser("~/etc/photo-transforms"), help="default directory for transformation configuration files [%default]")
+	parser.add_option("--transform_suffix", default=".yaml", help="default suffix for transformation configuration files [%default]")
 	(options, args) = parser.parse_args()
 
 	if options.ncpus <= 0:
-		print("must have at least 1 cpu", file=sys.stderr)
-		sys.exit(1)
+		error(myname(), "must have at least 1 cpu")
+
+	tasks = []
+	if args:
+		for fn in args:
+			tasks.extend(get_tasks(fn + options.transform_suffix, options, check_destination=False))
+	else:
+		for fn in os.listdir(options.transform_dir):
+			if fn.endswith(options.transform_suffix):
+				tasks.extend(get_tasks(fn, options, check_destination=True))
+	execute_tasks(tasks, 0, options)
+	sys.exit(0)
 
 	if options.config:
 		config = read_config(options.config, options)
