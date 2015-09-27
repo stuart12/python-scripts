@@ -16,7 +16,7 @@
 
 import os, optparse, sys, subprocess, time
 import errno
-import pipes
+import shlex
 import stat
 import tempfile
 import shutil
@@ -30,6 +30,9 @@ def myname():
 def verbose(options, *args):
 	if options.verbose:
 		print(myname() + ":", *args, file=sys.stderr)
+
+def warning(options, *args):
+	print(myname() + ": warn:", *args, file=sys.stderr)
 
 def error(options, *args):
 	print(myname() + ": error:", *args, file=sys.stderr)
@@ -502,16 +505,20 @@ def read_config(config_file, options):
 	config = ConfigWrapper(read_include(config_file, options), config_file, options)
 	return config
 
-def get_destination(opts, options):
-	dest = opts.get('destination_path', None)
+def get_path(ptype, opts, options):
+	dest = opts.get(ptype + '_path', None)
 	if not dest:
-		base = opts.get('destination', None)
+		base = opts.get(ptype, None)
 		if not base:
 			base = os.path.basename(opts.file_name()).split('.')[0]
-		dest = os.path.join(opts.get('destination_directory'), base)
+		dest = os.path.join(opts.get(ptype + '_directory'), base)
 	return dest
 
-def get_tasks(config_file, options, check_destination=False):
+def get_destination(opts, options):
+	return get_path('destination', opts, options)
+
+
+def get_tasks(config_file, outdirs, options, check_destination=False):
 	config = read_config(os.path.join(options.transform_dir, config_file), options)
 	opts = config.wrap('config')
 	target_dir = get_destination(opts, options)
@@ -519,10 +526,35 @@ def get_tasks(config_file, options, check_destination=False):
 		source_dir = os.path.expanduser(opts.get('source'))
 		verbose(options, source_dir, "->", target_dir)
 		transforms = config.get('transformations')
-		if options.print_outdir:
-			print(target_dir)
+		outdirs.append((target_dir, opts))
 		return transformer("", source_dir, target_dir, config, options)
 	return []
+
+def post_process(outdirs, options):
+	procs = []
+	for target, config in outdirs:
+		prog = config.get('post_process', None)
+		if prog:
+			dest = get_path('post', config, options)
+			try:
+				os.mkdir(dest)
+			except FileExistsError:
+				pass
+			cmd = [prog, target, dest]
+			str_cmd =  " ".join(shlex.quote(c) for c in cmd)
+			verbose(options, "post process:", str_cmd)
+			procs.append((subprocess.Popen(cmd), str_cmd))
+		else:
+			dest = target
+		if options.print_outdir:
+			print(dest)
+	r = 0
+	for proc, cmd in procs:
+		if proc.wait() != 0:
+			warning(options, "failed post processing:", cmd)
+			r = 1
+	if r:
+		sys.exit(r)
 
 def main(argv):
 	parser = optparse.OptionParser(usage="usage: %prog [--help] [options] source_dir target_dir")
@@ -558,14 +590,16 @@ def main(argv):
 		error(myname(), "must have at least 1 cpu")
 
 	tasks = []
+	outdirs = []
 	if args:
 		for fn in args:
-			tasks.extend(get_tasks(fn + options.transform_suffix, options, check_destination=False))
+			tasks.extend(get_tasks(fn + options.transform_suffix, outdirs, options=options, check_destination=False))
 	else:
 		for fn in os.listdir(options.transform_dir):
 			if fn.endswith(options.transform_suffix):
-				tasks.extend(get_tasks(fn, options, check_destination=True))
+				tasks.extend(get_tasks(fn, outdirs, options=options, check_destination=True))
 	execute_tasks(tasks, 0, options)
+	post_process(outdirs, options)
 	sys.exit(0)
 
 	if options.config:
