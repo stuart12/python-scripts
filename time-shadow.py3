@@ -92,6 +92,7 @@ def rmdir(src, options):
 
 def unlink(src, options):
     verbose(options, "unlink", src)
+    os.readlink(src)
     os.unlink(src)
 
 def mkdir(src, options):
@@ -221,11 +222,8 @@ def delete_directory(dst, options):
             raise
         return True
     try:
-        files = os.listdir(fd)
-        for f in files:
-            path = os.path.join(dst, f)
-            os.readlink(path)
-            unlink(path, options)
+        for f in os.listdir(fd):
+            unlink(os.path.join(dst, f), options)
         rmdir(dst, options)
         return False
     finally:
@@ -233,7 +231,8 @@ def delete_directory(dst, options):
 
 def shadow(src_dir, dst_dir, options):
     verbose(options, "shadow", src_dir, dst_dir)
-    for fn in os.listdir(src_dir):
+    src_dirs = frozenset(os.listdir(src_dir))
+    for fn in src_dirs:
         src = os.path.join(src_dir, fn)
         dst = os.path.join(dst_dir, fn)
         paths = sorted(os.listdir(src))
@@ -241,6 +240,11 @@ def shadow(src_dir, dst_dir, options):
         need_symlink = not dates or not do_shadow(src, paths, dst, dates, options)
         if need_symlink and not delete_directory(dst, options):
             symlink(src, dst, options)
+    for fn in frozenset(os.listdir(dst_dir)) - src_dirs:
+        path = os.path.join(dst_dir, fn)
+        print("should delete", path, file=sys.stderr)
+        if delete_directory(path, options):
+            unlink(path, options)
 
 def main():
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter,
