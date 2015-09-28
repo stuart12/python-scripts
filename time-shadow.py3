@@ -242,7 +242,6 @@ def shadow(src_dir, dst_dir, options):
             symlink(src, dst, options)
     for fn in frozenset(os.listdir(dst_dir)) - src_dirs:
         path = os.path.join(dst_dir, fn)
-        print("should delete", path, file=sys.stderr)
         if delete_directory(path, options):
             unlink(path, options)
 
