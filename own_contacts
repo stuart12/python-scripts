@@ -106,7 +106,7 @@ def format_contact(contact, troff, min_pager, options):
 	numbers = set()
 	for number in contact.contents.get('tel', []):
 		tag = ''
-		for ntype in number.params['TYPE']:
+		for ntype in number.params.get('TYPE', []):
 			if icase(ntype, 'CELL'):
 				tag += 'm'
 			elif icase(ntype,'HOME'):
