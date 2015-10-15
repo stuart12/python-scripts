@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 # vim: set shiftwidth=4 tabstop=4 noexpandtab copyindent preserveindent softtabstop=0 
-# Use btrfs send and receive to backup a subvolume to a local disk.
+# Rename pp3 side car files if their root file has been renamed
 # Copyright (C) 2015 Stuart Pook (http://www.pook.it)
 #
 # This program is free software: you can redistribute it and/or modify it under
@@ -28,20 +28,23 @@ def fix(directory, options):
 	mapping = {}
 	slaves = []
 	for fn in os.listdir(directory):
-		if fn.endswith(options.master):
-			match = re.fullmatch("(\d\d\d_\d\d\d\d)( .+)" + options.master, fn)
-			if match:
-				mapping[match.group(1)] = match.group(2)
-		elif fn.endswith(options.slave):
-			slave = re.fullmatch("(\d\d\d_\d\d\d\d).*" + options.slave, fn)
+		if fn.endswith(options.slave):
+			slave = re.fullmatch(r"(\w+)(?:(?: .*)|)\.(\w\w\w)\." + options.slave, fn)
 			if slave:
-				slaves.append([slave.group(1), fn])
+				slaves.append([(slave.group(1), slave.group(2)), fn])
 		elif options.recursive and os.path.isdir(fn):
 			fix(os.path.join(directory, fn), options)
+		else:
+			match = re.fullmatch(r"(\w+)((?: .+)|)\.(\w\w\w)", fn)
+			if match:
+				mapping[(match.group(1), match.group(3))] = match.group(2)
+	if options.verbosity > 1:
+		verbose(options, mapping)
+		verbose(options, slaves)
 	for (key, fn) in slaves:
 		text = mapping.get(key)
 		if text:
-			new_fn = key + text + options.slave
+			new_fn = key[0] + text + "." + key[1] + "." + options.slave
 			if fn != new_fn:
 				verbose(options, "mv %s %s" % (fn, new_fn))
 				if not options.dryrun:
@@ -53,8 +56,7 @@ def main():
 	parser.add_argument("-v", "--verbosity", action="count", default=0, help="increase output verbosity")
 	parser.add_argument("-n", '--dryrun', default=False, action='store_true', help='dryrun')
 	parser.add_argument("-r", '--recursive', default=False, action='store_true', help='recursive')
-	parser.add_argument('--slave', default=".cr2.pp3", help='suffix to fix')
-	parser.add_argument('--master', default=".cr2", help='master suffix')
+	parser.add_argument('--slave', default="pp3", help='suffix to fix')
 
 	parser.add_argument('directories', default=["."], nargs=argparse.REMAINDER, help='directories to fix')
 
