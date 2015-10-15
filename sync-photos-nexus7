@@ -16,12 +16,34 @@ import optparse
 import os
 import subprocess
 import shlex
+import sys
+
+def verbose(options, *args):
+	if options.verbose:
+		print(*args, file=sys.stderr)
+
+def has_file(dirname, fn, machine, options):
+	cmd = ["ssh", "-o", "BatchMode=yes", machine, "ls", dirname]
+	dirs = subprocess.Popen(cmd, stdout=subprocess.PIPE, universal_newlines=True)
+	try:
+		for line in dirs.stdout:
+			if line.strip() == fn:
+				return True
+		return False
+	finally:
+		if dirs.wait() != 0:
+			sys.exit("cmd failed " + " ".join(cmd))
+
+def check_call(cmd, options):
+	verbose(options, " ".join(shlex.quote(c) for c in cmd))
+	if not options.norun:
+		subprocess.check_call(cmd)
 
 def main():
 	parser = optparse.OptionParser(usage="usage: %prog [options] [--help] [machine]")
 	parser.add_option("--machine", default="windy", help="where to send to [%default]")
-	parser.add_option("-s", "--source_dir", default="/disks/scratch/stuart/converted-photos2", help="source directory [%default]")
-	parser.add_option("--dest_dir", default="/storage/sdcard1/Stuart_Pook/rsync", help="destination directory [%default]")
+	parser.add_option("--dest_root", default="/storage", help="destination directory [%default]")
+	parser.add_option("--dest_subdir", default="Stuart_Pook/rsync", help="destination directory [%default]")
 	parser.add_option("-v", "--verbose", action="store_true", help="verbose")
 	parser.add_option("-n", "--norun", action="store_true", help="don't run the rsync")
 	parser.add_option("-S", "--size", help="size [%default]")
@@ -35,6 +57,12 @@ def main():
 	machine = args[0] if len(args) else options.machine
 	size = options.size if options.size else machine
 
+	source = subprocess.check_output(["transform2", "--print_outdir", size], universal_newlines=True).strip()
+	f1 = "sdcard1"
+	if not has_file(options.dest_root, f1, machine, options):
+		f1 = "sdcard0"
+	dest = os.path.join(options.dest_root, f1, options.dest_subdir)
+
 	cmd = ["rsync"]
 	if options.rsync_path:
 		cmd.append("--rsync-path=" + options.rsync_path)
@@ -42,14 +70,13 @@ def main():
 	cmd.append("--copy-unsafe-links")
 	cmd.append(options.compare)
 	cmd.append("--delete")
-	cmd.append("-Pr")
-	cmd.append(os.path.join(options.source_dir, size) + "/")
-	cmd.append(machine + ":" + os.path.join(options.dest_dir, "photos-sync/"))
-	if options.verbose or options.norun:
-		print(" ".join(shlex.quote(c) for c in cmd))
-	if not options.norun:
-		subprocess.check_call(cmd)
-		subprocess.check_call(["ssh", "-n", options.machine, "am broadcast android.intent.action.MEDIA_MOUNTED"])
+	cmd.append("--recursive")
+	cmd.append("-P")
+	cmd.append(source + "/")
+	cmd.append(machine + ":" + os.path.join(dest, "photos/"))
+	check_call(cmd, options)
+	# https://stackoverflow.com/questions/17928576/refresh-android-mediastore-using-adb
+	check_call(["ssh", "-n", machine, "am broadcast -a android.intent.action.MEDIA_MOUNTED", "-d", "file:///mnt/media_rw/" + f1], options)
 
 if __name__ == "__main__":
 	main()
