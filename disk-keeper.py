@@ -122,7 +122,7 @@ def get_last_scrub(filesystem, options):
 
 	for line in p.stdout:
 		lines.append(line)
-		match = re.match("\s*scrub started at (.*) and finished after \d+ seconds", line)
+		match = re.match("\s*scrub started at (.*) and finished after \d", line)
 		if match:
 			date = dateutil.parser.parse(match.group(1))
 		elif re.match("\s*no stats available", line):
@@ -132,7 +132,8 @@ def get_last_scrub(filesystem, options):
 	if p.wait() != 0:
 		error("%s failed (%d) %s" % (cmd[0], p.returncode, lines))
 	if date is None and not never:
-			error("%s did not give last scrub date for %s" % (cmd[0], filesystem))
+		warn("%s did not give last scrub date for %s" % (cmd[0], filesystem))
+		return None
 	return None if never else date
 
 def main():
