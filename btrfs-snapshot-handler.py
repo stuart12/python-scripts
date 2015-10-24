@@ -46,15 +46,14 @@ def error(*opts):
 def quote_command(command):
 	return " ".join(shlex.quote(x) for x in command)
 
-def check_pipe(command, p):
+def check_pipe(command, p, stdout, options):
 	if p.wait() != 0:
-		tmp = p.stderr
-		if tmp:
-			tmp.seek(0)
-			r = tmp.read()
-		else:
+		if stdout is None:
 			r = ""
-		warn(quote_command(command), "failed (%d): %s" % (p.returncode, r))
+		else:
+			stdout.seek(0)
+			r = ": " + stdout.read().rstrip()
+		warn(quote_command(command), "failed (%d)%s" % (p.returncode, r))
 		return 1
 	return 0
 
@@ -67,18 +66,19 @@ def check_call(command, options):
 	verbose(options, quote_command(command))
 	if options.dryrun:
 		return
-	p = subprocess.Popen(command, stderr=subprocess.STDOUT, stdout=get_stdout(options))
-	if check_pipe(command, p) > 0:
-		sys.exit(10)
+	stdout = get_stdout(options)
+	p = subprocess.Popen(command, stderr=subprocess.STDOUT, stdout=stdout)
+	return check_pipe(command, p, stdout, options) == 0
 
 def snapshot(src, dst_dir, options):
 	dst = os.path.join(dst_dir, options.timestamp)
-	check_call([options.btrfs, "subvolume", "snapshot", "-r", src, dst], options)
+	return check_call([options.btrfs, "subvolume", "snapshot", "-r", src, dst], options)
 
 def snapshot_with_config(options):
 	config = configparser.ConfigParser()
 	with open(options.config) as f:
 		config.read_file(f)
+	ok = True
 	for section_name in config.sections():
 		section = config[section_name]
 		src = section.get("source", None)
@@ -88,11 +88,14 @@ def snapshot_with_config(options):
 		if dst == None:
 			dst = os.path.join(section.get("destinationdirectory", None), section_name)
 #		verbose(options, "Section: %s %s -> %s" % (section_name, src, dst))
-		snapshot(src, dst, options)
+		ok = snapshot(src, dst, options) and ok
+	return ok
 
 def snapshot_directories(src_dir, dst_dir, options):
+	ok = True
 	for subdir in os.listdir(src_dir):
-		snapshot(os.path.join(src_dir, subdir), os.path.join(dst_dir, subdir), options)
+		ok = snapshot(os.path.join(src_dir, subdir), os.path.join(dst_dir, subdir), options) and ok
+	return ok
 
 def main():
 	parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
@@ -104,20 +107,22 @@ def main():
 	parser.add_argument('-D', '--directories', action='store_true', help='do subdirectories of arguments')
 	parser.add_argument('-n', '--dryrun', action='store_true', help='do not execute')
 
-	parser.add_argument('args', nargs=argparse.REMAINDER, help='command to run')
+	parser.add_argument('args', nargs=argparse.REMAINDER, help='directories')
 
 	options = parser.parse_args()
 
 	if options.config:
-		snapshot_with_config(options)
+		ok = snapshot_with_config(options)
 	elif options.directories and len(options.args) >= 2:
+		ok = True
 		for src in options.args[0:-1]:
-			snapshot_directories(src, options.args[-1], options)
+			ok = snapshot_directories(src, options.args[-1], options) and ok
 	elif len(options.args) == 2:
-		snapshot(options.args[0], options.args[-1], options)
+		ok = snapshot(options.args[0], options.args[-1], options)
 	else:
 		parser.print_help()
 		sys.exit("bad arguments")
+	sys.exit(0 if ok else 8)
 
 if __name__ == "__main__":
 	main()
