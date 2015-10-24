@@ -83,6 +83,7 @@ def look_for_directories(camera, where, seen, found, options):
 		]),
 		CameraInfo("GOPRO", "g", [
 			FileMapping(r"GOPR([0-9]{4})\.JPG", r"\1.jpg"),
+			FileMapping(r"G001([0-9]{4})\.JPG", r"\1.jpg"),
 			FileMapping(r"GOPR([0-9]{4})\.mp4", r"\g<1>00.mp4"), # add 00 to sort in correct order with continuation files
 			FileMapping(r"GP([0-9]{2})([0-9]{4})\.mp4", r"\2\1.mp4"),
 		]),
