@@ -83,11 +83,8 @@ def get_temperature2(cmd, can_fail, options):
 		lines.append(line)
 		fields = line.split()
 		if len(fields) > temperature_position:
-			try:
-				id = int(fields[0])
-			except ValueError:
-				continue
-			if id == options.temperature_id:
+			name = fields[1]
+			if options.temperature_name in name:
 				temperature = int(fields[temperature_position])
 
 	p.stdout.close()
@@ -98,7 +95,7 @@ def get_temperature2(cmd, can_fail, options):
 	if temperature is None:
 		if can_fail:
 			return None
-		error("%s did not give a temperature (id %d) %s" % (quote_command(cmd), options.temperature_id, lines))
+		warn("%s did not give a temperature (name %2)" % (quote_command(cmd), options.temperature_name), "".join(lines))
 	return temperature
 
 def get_temperature(disk, options):
@@ -111,7 +108,7 @@ def get_temperature(disk, options):
 	if temp is None:
 		time.sleep(options.smartctl_sleep)
 		temp = get_temperature2(cmd, False, options)
-	return temp
+	return temp if temp is not None else 0
 
 def get_last_scrub(filesystem, options):
 	cmd = [options.btrfs, "scrub", "status", filesystem]
@@ -146,7 +143,7 @@ def main():
 	parser.add_argument('--extra_fs', default=None, metavar='MOUNTPOINT', help='another filesystem to check')
 	parser.add_argument('--btrfs', default="btrfs", metavar='COMMAND', help='btrfs command')
 	parser.add_argument('--smartctl', default="smartctl", metavar='COMMAND', help='smartctl command')
-	parser.add_argument('--temperature_id', default=194, type=int, metavar='ID', help='ID for smartctl Temperature_Celsius attribute')
+	parser.add_argument('--temperature_name', default='Temperature', metavar='SUBSTRING', help='name for smartctl temperature attribute')
 	parser.add_argument('--raw_value', default=9, type=int, metavar='COLUMN', help='column number for RAW_VALUE in smartctl attributes')
 	parser.add_argument('--smartctl_sleep', default=2.2, metavar='SECONDS', type=float, help='sleep before retrying if smartctl fails')
 	parser.add_argument('--replace_string', default="{}", metavar='STRING', help='replace this string with the filesystem in command')
