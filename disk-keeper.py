@@ -23,8 +23,8 @@ import time
 import syslog
 import dateutil.parser
 
-def verbose(args, *opts):
-	if args.verbosity:
+def verbose(options, *opts):
+	if options.verbosity:
 		print(os.path.basename(sys.argv[0]) + ":", *opts, file=sys.stderr)
 
 def warn(*opts):
@@ -95,7 +95,7 @@ def get_temperature2(cmd, can_fail, options):
 	if temperature is None:
 		if can_fail:
 			return None
-		warn("%s did not give a attribute whose name contained %s" % (quote_command(cmd), options.temperature_name), "".join(lines))
+		verbose(options, "%s did not give a attribute whose name contained %s" % (quote_command(cmd), options.temperature_name), "".join(lines))
 	return temperature
 
 def get_temperature(disk, options):
