@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 # playnewestpod Copyright (c) 2015 Stuart Pook (http://www.pook.it/)
 # program and ring an alarm on a remote machine
-# set noexpandtab copyindent preserveindent softtabstop=0 shiftwidth=4 tabstop=4
+# set expandtab copyindent preserveindent softtabstop=0 shiftwidth=4 tabstop=4
 # This program is free software: you can redistribute it and/or modify it under
 # the terms of the GNU General Public License as published by the Free Software
 # Foundation, either version 3 of the License, or (at your option) any later version.
@@ -127,6 +127,34 @@ def call(options, cmd, **kw):
         verbose(options, "failed (%d):" % r, format_cmd(cmd))
     return r
 
+def set_brightness(options, brightness):
+    fn = os.path.join(options.led_directory, options.led_control)
+    verbose(options, "brightness %s in %s" % (brightness, fn))
+    with open(fn, "w") as f:
+        f.write(brightness + "\n")
+
+def get_contents(fn, options):
+    with open(fn) as f:
+        return f.readline().strip()
+
+class ShowLed:
+    def __init__(self, options):
+        self.options = options
+    def __enter__(self):
+        options = self.options
+        try:
+            set_brightness(options, get_contents(os.path.join(options.led_directory, options.led_max), options))
+        except OSError:
+            self.ok = False
+        else:
+            self.ok = True
+    def __exit__(self, type, value, traceback):
+        if self.ok:
+            try:
+                set_brightness(self.options, "0")
+            except OSError:
+                pass
+
 def get_trigger(options):
     return os.path.join(options.config, options.trigger)
 
@@ -148,21 +176,23 @@ def wakeup(options):
         if stat.st_mtime < time.time() - options.age * 60 * 60:
             verbose(options, "trigger old, skipping", get_trigger(options))
         else:
-            mplayer = mplayer_cmd(options)
-            call(options, [options.alsactl, "--file", os.path.join(options.config, options.on), "restore"])
-            if call(options, mplayer) == 0:
-                call(options, ["amixer", "-q", "set", options.volume_control, options.loud])
-                call(options, mplayer)
-            call(options, [options.alsactl, "--file", os.path.join(options.config, options.off), "restore"])
+            with ShowLed(options) as dummy:
+                mplayer = mplayer_cmd(options)
+                call(options, [options.alsactl, "--file", os.path.join(options.config, options.on), "restore"])
+                if call(options, mplayer) == 0:
+                    call(options, ["amixer", "-q", "set", options.volume_control, options.loud])
+                    call(options, mplayer)
+                call(options, [options.alsactl, "--file", os.path.join(options.config, options.off), "restore"])
 
 def queue(options):
-    with open(get_trigger(options), "w") as trig:
-        os.utime(trig.fileno(), None)
-    verbose(options, "queue", get_trigger(options))
-    check_call(options, [options.alsactl, "--file", os.path.join(options.config, options.on), "restore"])
-    mplayer = mplayer_cmd(options, ["--ss=" + options.test_start, "--endpos=" + options.test_play_time])
-    check_call(options, mplayer)
-    check_call(options, [options.alsactl, "--file", os.path.join(options.config, options.off), "restore"])
+    with ShowLed(options) as dummy:
+        with open(get_trigger(options), "w") as trig:
+            os.utime(trig.fileno(), None)
+        verbose(options, "queue", get_trigger(options))
+        check_call(options, [options.alsactl, "--file", os.path.join(options.config, options.on), "restore"])
+        mplayer = mplayer_cmd(options, ["--ss=" + options.test_start, "--endpos=" + options.test_play_time])
+        check_call(options, mplayer)
+        check_call(options, [options.alsactl, "--file", os.path.join(options.config, options.off), "restore"])
 
 def stop(options):
     call(options, ["pkill", "-u", str(os.getuid()), options.player])
@@ -178,7 +208,7 @@ def main():
     parser.add_argument("-v", "--verbosity", action="count", default=0, help="increase output verbosity")
     parser.add_argument("--test_start", metavar="TIMESPEC", default='43.8',
             help="start position during test")
-    parser.add_argument("--test_play_time", metavar="TIMESPEC", default='2.1',
+    parser.add_argument("--test_play_time", metavar="TIMESPEC", default='3.1',
             help="time to play during test")
     parser.add_argument("--player", metavar="COMMAND", default="mplayer", help="command to play music")
     parser.add_argument("--alsactl", metavar="COMMAND", default="/usr/sbin/alsactl", help="command to load alsa config")
@@ -197,8 +227,8 @@ def main():
     parser.add_argument("--led_control", metavar="FILE", default="brightness", help="file controlling LED brightness")
     parser.add_argument("--led_max", metavar="FILE", default="max_brightness",
             help="file containing maximum LED brightness value")
-    parser.add_argument('-a', "--activate", action="store_true", help="program alarm")
-    parser.add_argument("-s", "--stop", action="store_true", help="stop alarm")
+    parser.add_argument("--activate", '-a', action="store_true", help="program alarm")
+    parser.add_argument("--stop", "-s", action="store_true", help="stop alarm")
     parser.add_argument("--syslog", action="store_true", help="syslog messages")
 
     options = parser.parse_args()
