@@ -335,63 +335,70 @@ def make_waitable_command(cmd, options):
 	return [options.sudo, "sh", "-c", "echo foo && " + cmd]
 
 def read_btrfs_coroutine(entry, stem, fname, options):
+	verbose(options, "read_btrfs_coroutine no questions phase")
 	md5_file = os.path.join(options.read, fname + options.md5_suffix)
 	md5 = get_md5_from_file(md5_file)
 	full_stem = os.path.join(options.output, stem)
 	yield
+	verbose(options, "read_btrfs_coroutine questions phase")
 	snapshot_lister_command = "btrfs subvolume list -uRro " + quote(full_stem, options)
 	snapshot_command = make_waitable_command("cat && " + snapshot_lister_command, options)
 	snapshot_lister = subprocess.Popen(snapshot_command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, universal_newlines=True)
 	snapshot_lister.stdout.readline() # make sure sudo has finished asking any questions
 
-	if options.list_snapshots_only:
-		yield
-	else:
-		fencrypted = os.path.join(options.read, entry)
-		verbose(options, options.decrypter, fencrypted)
-		gpg = subprocess.Popen([options.decrypter], stdin=subprocess.PIPE, stdout=subprocess.PIPE, shell=True)
-
-		with open(fencrypted, "rb") as encrypted:
-			q = multiprocessing.Queue()
-			data_checker = multiprocessing.Process(target=put_result, args=(functools.partial(read_write_md5, b"", encrypted, gpg.stdin, options), q), daemon=True)
-			data_checker.start()
-
-		gpg.stdin.close()
-		decrypted = gpg.stdout.read(options.blocking) # make sure gpg has finished asking any questions
-
-		btrfs_cmd = make_waitable_command("btrfs receive " + quote(full_stem, options), options)
-
-		verbose(options, "starting", '"' + " ".join(btrfs_cmd) + '"')
-		receive = subprocess.Popen(btrfs_cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-		gpg2receive = multiprocessing.Process(target=read_write, args=(decrypted, gpg.stdout, receive.stdin, options), daemon=True)
-		gpg2receive.start()
-		receive.stdin.close()
-		receive_as_text = io.TextIOWrapper(receive.stdout)
-		receive_as_text.readline() # make sure sudo has finished asking any questions
-
-		yield
-
-		verbose(options, "waiting for", '"' + " ".join(btrfs_cmd) + '"')
-		snapshot = get_snapshot_from_btrfs_receive(receive_as_text, btrfs_cmd, options)
-		wait_check(receive, btrfs_cmd, options, "for", stem)
-		wait_check(gpg, [options.decrypter], options, "for", stem)
-		join_check(gpg2receive, options, "subprocess to copy from gpg to btrfs receive failed for", stem)
-		join_check(data_checker, options, "read", fencrypted, "md5 and write")
-		new_md5 = q.get()
-		if md5 != new_md5:
-			fatal(options, "md5", new_md5, "of data read from", fencrypted, "does not match md5", md5, "in", md5_file)
-
-		verbose(options, '"' + " ".join(btrfs_cmd) + '"', "imported", snapshot, "from", fencrypted)
-
-	snapshot_lister.stdin.close()
 	snapshots = os.path.join(options.read, stem + options.snapshots_suffix)
-	found = not snapshot
-	with open(snapshots, "w") as output:
+	snapshots_tmp = snapshots + ".tmp"
+	with open(snapshots_tmp, "w") as snap_file:
+		if options.list_snapshots_only:
+				snapshot = False
+				yield
+				verbose(options, "read_btrfs_coroutine wait phase")
+		else:
+				fencrypted = os.path.join(options.read, entry)
+				verbose(options, options.decrypter, fencrypted)
+				gpg = subprocess.Popen([options.decrypter], stdin=subprocess.PIPE, stdout=subprocess.PIPE, shell=True)
+
+				with open(fencrypted, "rb") as encrypted:
+						q = multiprocessing.Queue()
+						data_checker = multiprocessing.Process(target=put_result, args=(functools.partial(read_write_md5, b"", encrypted, gpg.stdin, options), q), daemon=True)
+						data_checker.start()
+
+				gpg.stdin.close()
+				decrypted = gpg.stdout.read(options.blocking) # make sure gpg has finished asking any questions
+
+				btrfs_cmd = make_waitable_command("btrfs receive " + quote(full_stem, options), options)
+
+				verbose(options, "starting", '"' + " ".join(btrfs_cmd) + '"')
+				receive = subprocess.Popen(btrfs_cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+				gpg2receive = multiprocessing.Process(target=read_write, args=(decrypted, gpg.stdout, receive.stdin, options), daemon=True)
+				gpg2receive.start()
+				receive.stdin.close()
+				receive_as_text = io.TextIOWrapper(receive.stdout)
+				receive_as_text.readline() # make sure sudo has finished asking any questions
+
+				yield
+
+				verbose(options, "waiting for", '"' + " ".join(btrfs_cmd) + '"')
+				snapshot = get_snapshot_from_btrfs_receive(receive_as_text, btrfs_cmd, options)
+				wait_check(receive, btrfs_cmd, options, "for", stem)
+				wait_check(gpg, [options.decrypter], options, "for", stem)
+				join_check(gpg2receive, options, "subprocess to copy from gpg to btrfs receive failed for", stem)
+				join_check(data_checker, options, "read", fencrypted, "md5 and write")
+				new_md5 = q.get()
+				if md5 != new_md5:
+						fatal(options, "md5", new_md5, "of data read from", fencrypted, "does not match md5", md5, "in", md5_file)
+
+				verbose(options, '"' + " ".join(btrfs_cmd) + '"', "imported", snapshot, "from", fencrypted)
+
+		snapshot_lister.stdin.close()
+		found = not snapshot
 		for line in snapshot_lister.stdout:
-			found = found or line.strip().endswith(snapshot)
-			print(line, end="", file=output)
+				found = found or line.strip().endswith(snapshot)
+				print(line, end="", file=snap_file)
 #		shutil.copyfileobj(snapshot_lister.stdout, output)
-	wait_check(snapshot_lister, snapshot_command, options, fencrypted)
+	if not options.list_snapshots_only:
+		wait_check(snapshot_lister, snapshot_command, options, fencrypted)
+	os.rename(snapshots_tmp, snapshots)
 	if not found:
 		fatal(options, "new snapshot", snapshot, "not found in list of snapshots given by", snapshot_lister_command)
 	verbose(options, " ".join(snapshot_command), ">", snapshots)
@@ -409,44 +416,52 @@ def get_md5_from_file(md5_file):
 		return line[:pos]
 
 def read_md5_coroutine(entry, stem, fname, options):
-	do_copy = not options.do_not_copy
+	verbose(options, "read_md5_coroutine no questions phase")
+	if options.list_snapshots_only:
+		yield
+		verbose(options, "read_md5_coroutine questions phase")
+		yield
+		verbose(options, "read_md5_coroutine wait phase")
+	else:
+		do_copy = not options.do_not_copy
 
-	md5_file = os.path.join(options.read, fname + options.md5_suffix)
-	md5 = get_md5_from_file(md5_file)
+		md5_file = os.path.join(options.read, fname + options.md5_suffix)
+		md5 = get_md5_from_file(md5_file)
 
-	new_snapshot = os.path.join(options.output, stem, entry)
+		new_snapshot = os.path.join(options.output, stem, entry)
 
-	tmp = new_snapshot + ".tmp" if do_copy else "/dev/null"
+		tmp = new_snapshot + ".tmp" if do_copy else "/dev/null"
 
-	input_file = os.path.join(options.read, entry)
-	with open(input_file, "rb") as input:
-		with open(tmp, "wb") as output:
-			q = multiprocessing.Queue()
-			worker = multiprocessing.Process(target=put_result, args=(functools.partial(read_write_md5, b"", input, output, options), q), daemon=True)
-			worker.start()
-			verbose(options, "started copy", input_file, "to", tmp)
-			yield
-			yield
-			verbose(options, "waiting for copy", input_file, "to", tmp)
-			join_check(worker, options, "read, write & md5")
-			new_md5 = q.get()
-			verbose(options, "finished copy", input_file, "to", tmp)
+		input_file = os.path.join(options.read, entry)
+		with open(input_file, "rb") as input:
+			with open(tmp, "wb") as output:
+				q = multiprocessing.Queue()
+				worker = multiprocessing.Process(target=put_result, args=(functools.partial(read_write_md5, b"", input, output, options), q), daemon=True)
+				worker.start()
+				verbose(options, "started copy", input_file, "to", tmp)
+				yield
+				yield
+				verbose(options, "waiting for copy", input_file, "to", tmp)
+				join_check(worker, options, "read, write & md5")
+				new_md5 = q.get()
+				verbose(options, "finished copy", input_file, "to", tmp)
 
-	if new_md5 != md5:
-		sys.exit("MD5 mismatch for %s (%s != %s)" % (entry, md5, new_md5))
+		if new_md5 != md5:
+			sys.exit("MD5 mismatch for %s (%s != %s)" % (entry, md5, new_md5))
 
-	if do_copy:
-		with open(md5_file) as input:
-			new_md5_file = os.path.join(options.output, stem, fname + options.md5_suffix)
-			with open(new_md5_file, "w") as output:
-				verbose(options, "cp", md5_file, new_md5_file)
-				shutil.copyfileobj(input, output)
+		if do_copy:
+			with open(md5_file) as input:
+				new_md5_file = os.path.join(options.output, stem, fname + options.md5_suffix)
+				with open(new_md5_file, "w") as output:
+					verbose(options, "cp", md5_file, new_md5_file)
+					shutil.copyfileobj(input, output)
 
-		verbose(options, "mv", tmp, new_snapshot)
-		os.rename(tmp, new_snapshot)
-		verbose(options, "finished copying", input_file, "to", new_snapshot)
+			verbose(options, "mv", tmp, new_snapshot)
+			os.rename(tmp, new_snapshot)
+			verbose(options, "finished copying", input_file, "to", new_snapshot)
 
 	yield
+	verbose(options, "read_md5_coroutine done")
 
 def read(options, sections):
 	tags = [
