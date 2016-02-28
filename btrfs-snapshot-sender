@@ -125,10 +125,13 @@ def start_incremental_backup(section, latest_fname, in_use_fname, options):
 	print_command(cmd, options)
 	return subprocess.Popen(cmd, stdout=subprocess.PIPE), cmd
 
-def read_write_md5(buf, input, output, options):
+def read_write_md5(buf, input, output, output_fname, options):
 	dumpmd5 = hashlib.md5()
 	while True:
-		output.write(buf)
+		try:
+			output.write(buf)
+		except OSError as ex:
+			fatal(options, "OSError writing on %s: %s" % (output_fname, ex))
 		dumpmd5.update(buf)
 		buf = input.read(options.blocking)
 		if len(buf) == 0:
@@ -248,7 +251,7 @@ def do_backup_coroutine(section, options):
 	with open(os.path.join(options.output, md5_basename), "w") as md5_file:
 		with open(output_tmp_name, "wb") as output_tmp:
 			q = multiprocessing.Queue()
-			gpg2file = multiprocessing.Process(target=put_result, args=(functools.partial(read_write_md5, encrypted, encryption.stdout, output_tmp, options), q), daemon=True)
+			gpg2file = multiprocessing.Process(target=put_result, args=(functools.partial(read_write_md5, encrypted, encryption.stdout, output_tmp, output_tmp_name, options), q), daemon=True)
 			gpg2file.start()
 			encryption.stdout.close()
 			possible_unlink(output_name, options)
