@@ -55,23 +55,7 @@ def copy_exif_data(image, source_path, dest_path, options):
 	#	source.copyMetadataTo(dest)
 		dest.writeMetadata()
 
-def main():
-	parser = optparse.OptionParser(usage="usage: %prog [--help] [options] inputfile")
-	parser.add_option("-o", "--output", help="output file name [%default]")
-	parser.add_option("-v", "--verbose", action="store_true", help="verbose")
-	parser.add_option("--resizing_pp3", metavar="DUMMY", help="ignored [%default]")
-	parser.add_option("--no_dimensions_symlink", action="store_true", help="don't make any symlinks even if the dimensions seem ok")
-	parser.add_option("-m", "--size_margin", type='float', default=1.1, help="margin for files almost the same size [%default]")
-	parser.add_option("-w", "--width", type='int', default=None, help="output width [%default]")
-	parser.add_option("--height", type='int', default=None, help="output height [%default]")
-	parser.add_option("-q", "--quality", type='int', default=40, help="output JPEG quality [%default]")
-	(options, args) = parser.parse_args()
-	if len(args) != 1:
-		parser.error("must supply 1 argument (found %d %s)" % (len(args), args))
-	inputfile = args[0]
-	if not options.output:
-		parser.error("--output option is compulsory")
-		
+def shrink(inputfile, options):
 	im = Image.open(inputfile)
 	iw = im.size[0]
 	ih = im.size[1]
@@ -91,6 +75,25 @@ def main():
 		if os.path.getsize(options.output) > os.path.getsize(inputfile) * 1.2:
 		    os.remove(options.output)
 		    os.symlink(inputfile, options.output)
+
+def main():
+	parser = optparse.OptionParser(usage="usage: %prog [--help] [options] inputfile")
+	parser.add_option("-o", "--output", help="output file name [%default]")
+	parser.add_option("-v", "--verbose", action="store_true", help="verbose")
+	parser.add_option("--resizing_pp3", metavar="DUMMY", help="ignored [%default]")
+	parser.add_option("--no_dimensions_symlink", action="store_true", help="don't make any symlinks even if the dimensions seem ok")
+	parser.add_option("-m", "--size_margin", type='float', default=1.1, help="margin for files almost the same size [%default]")
+	parser.add_option("-w", "--width", type='int', default=None, help="output width [%default]")
+	parser.add_option("--height", type='int', default=None, help="output height [%default]")
+	parser.add_option("-q", "--quality", type='int', default=40, help="output JPEG quality [%default]")
+	(options, args) = parser.parse_args()
+	if len(args) != 1:
+		parser.error("must supply 1 argument (found %d %s)" % (len(args), args))
+	inputfile = args[0]
+	if not options.output:
+		parser.error("--output option is compulsory")
+		
+	shrink(inputfile, options)
 	return 0
 
 if __name__ == "__main__":
