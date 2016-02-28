@@ -62,8 +62,8 @@ def main():
 	parser.add_option("--resizing_pp3", metavar="DUMMY", help="ignored [%default]")
 	parser.add_option("--no_dimensions_symlink", action="store_true", help="don't make any symlinks even if the dimensions seem ok")
 	parser.add_option("-m", "--size_margin", type='float', default=1.1, help="margin for files almost the same size [%default]")
-	parser.add_option("-w", "--width", type='int', default=120, help="output width [%default]")
-	parser.add_option("--height", type='int', default=120, help="output height [%default]")
+	parser.add_option("-w", "--width", type='int', default=None, help="output width [%default]")
+	parser.add_option("--height", type='int', default=None, help="output height [%default]")
 	parser.add_option("-q", "--quality", type='int', default=40, help="output JPEG quality [%default]")
 	(options, args) = parser.parse_args()
 	if len(args) != 1:
@@ -77,10 +77,13 @@ def main():
 	ih = im.size[1]
 	width = options.width
 	height = options.height
-	if ih > iw:
+	if ih and iw and ih > iw:
 		width, height = height, width
-	if not options.no_dimensions_symlink and iw <= width * options.size_margin and ih <= height * options.size_margin:
-		os.symlink(inputfile, options.output)
+	if not (width and height) or iw <= width * options.size_margin and ih <= height * options.size_margin:
+		if options.no_dimensions_symlink:
+			shutil.copyfile(inputfile, options.output)
+		else:
+			os.symlink(inputfile, options.output)
 	else:
 		im.thumbnail((width, height), Image.ANTIALIAS)
 		im.save(options.output, "JPEG", quality=options.quality)
