@@ -16,6 +16,7 @@ import os
 import sys
 import argparse
 import re
+import shlex
 
 def verbose(options, *args):
 	if options.verbosity:
@@ -46,7 +47,7 @@ def fix(directory, options):
 		if text:
 			new_fn = key[0] + text + "." + key[1] + "." + options.slave
 			if fn != new_fn:
-				verbose(options, "mv %s %s" % (fn, new_fn))
+				verbose(options, "mv %s %s" % (shlex.quote(fn), shlex.quote(new_fn)))
 				if not options.dryrun:
 					os.rename(fn, new_fn)
 
