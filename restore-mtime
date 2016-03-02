@@ -1,0 +1,79 @@
+#!/usr/bin/python3
+# Restore modification times of files whose content was not changed by a command
+# Copyright (C) 2016 Stuart Pook (http://www.pook.it)
+#
+# This program is free software: you can redistribute it and/or modify it under
+# the terms of the GNU General Public License as published by the Free Software
+# Foundation, either version 3 of the License, or (at your option) any later
+# version.  This program is distributed in the hope that it will be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+# or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
+# more details.  You should have received a copy of the GNU General Public
+# License along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+import os
+import sys
+import argparse
+import subprocess
+import shlex
+import hashlib
+import pathlib
+import collections
+import itertools
+
+def verbose(options, *args):
+    if options.verbose:
+        print(os.path.basename(sys.argv[0]) + ":", *args, file=sys.stderr)
+
+def warn(*opts):
+    print(os.path.basename(sys.argv[0]) + ":", *opts, file=sys.stderr)
+
+def fatal(*opts):
+    warn(*opts)
+    sys.exit(7)
+
+def md5sum(fname, options):
+    hash_md5 = hashlib.md5()
+    with fname.open("rb") as f:
+        for chunk in iter(lambda: f.read(4096), b""):
+            hash_md5.update(chunk)
+    return hash_md5.hexdigest()
+
+FD = collections.namedtuple('FD', ['path', 'stat', 'md5'])
+
+def scan(path, options):
+    #if not path.exists():
+        #fatal(path, "does not exist")
+    return [FD(e, e.stat(), md5sum(e, options)) for e in path.rglob('*') if not e.is_symlink() and e.is_file()]
+
+
+def run(options):
+    files = itertools.chain.from_iterable([scan(pathlib.Path(d), options) for d in options.directories])
+    #print(files)
+    r = subprocess.call(options.command)
+    for f in files:
+        if f.path.exists() and not f.path.is_symlink() and f.path.is_file():
+            stat = f.path.stat()
+            if stat.st_size == f.stat.st_size and stat.st_mtime > f.stat.st_mtime and f.md5 == md5sum(f.path, options):
+                verbose(options, "restoring", shlex.quote(f.path.path))
+                os.utime(f.path.path, ns=(stat.st_atime_ns, f.stat.st_mtime_ns))
+    return r
+
+def main():
+    parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+
+    parser.add_argument("-v", "--verbose", action="count", default=0, help="increase output verbosity")
+    parser.add_argument("-n", '--dryrun', default=False, action='store_true', help='dryrun')
+    parser.add_argument("-d", '--directories', action='append', help='directories to restore')
+
+    parser.add_argument('command', nargs=argparse.REMAINDER, help='command to run')
+
+    options = parser.parse_args()
+
+    if len(options.command) == 0:
+        parser.print_help()
+        sys.exit("bad arguments")
+    sys.exit(run(options))
+
+if __name__ == "__main__":
+    main()
