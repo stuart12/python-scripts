@@ -64,16 +64,29 @@ def get_stdout(options):
 def check_call(command, options):
     verbose(options, quote_command(command))
     if options.dryrun:
-        return
+        return True
     stdout = get_stdout(options)
     p = subprocess.Popen(command, stderr=subprocess.STDOUT, stdout=stdout)
     return check_pipe(command, p, stdout, options) == 0
 
-def snapshot(src, dst_dir, options):
-    dst = os.path.join(dst_dir, options.timestamp)
-    return check_call([options.btrfs, "subvolume", "snapshot", "-r", src, dst], options)
+def clean_snapshots(directory, keep, options):
+    if keep <= 0:
+        return True
+    snapshots = [fn for fn in os.listdir(directory) if all(c not in options.snapshot_saver for c in fn)]
+    verbose(options, "have %d snapshots in %s" % (len(snapshots), directory))
+    if len(snapshots) <= keep:
+        return True
+    to_delete = [os.path.join(directory, sn) for sn in sorted(snapshots)[:-keep]]
+    verbose(options, "delete %d snapshots in %s" % (len(to_delete), directory))
+    return check_call([options.btrfs, "subvolume", "delete", *to_delete], options)
 
-def snapshot_with_config(options):
+def snapshot(src, dst_dir, keep, options):
+    dst = os.path.join(dst_dir, options.timestamp)
+    if not check_call([options.btrfs, "subvolume", "snapshot", "-r", src, dst], options):
+        return False
+    return clean_snapshots(dst_dir, keep, options)
+
+def snapshot_with_config(keep, options):
     config = configparser.ConfigParser()
     with open(options.config) as f:
         config.read_file(f)
@@ -87,7 +100,7 @@ def snapshot_with_config(options):
         if dst == None:
             dst = os.path.join(section.get("destinationdirectory", None), section_name)
 #        verbose(options, "Section: %s %s -> %s" % (section_name, src, dst))
-        ok = snapshot(src, dst, options) and ok
+        ok = snapshot(src, dst, section.getint("keep", options.keep), options) and ok
     return ok
 
 def snapshot_directories(src_dir, dst_dir, options):
@@ -95,6 +108,24 @@ def snapshot_directories(src_dir, dst_dir, options):
     for subdir in os.listdir(src_dir):
         ok = snapshot(os.path.join(src_dir, subdir), os.path.join(dst_dir, subdir), options) and ok
     return ok
+
+def run(options, parser):
+    keep = options.keep
+    if options.config:
+        if len(options.args) != 0:
+            parser.print_help()
+            sys.exit("no arguments when config file used")
+        ok = snapshot_with_config(keep, options)
+    elif options.directories and len(options.args) >= 2:
+        ok = True
+        for src in options.args[0:-1]:
+            ok = snapshot_directories(src, options.args[-1], keep, options) and ok
+    elif len(options.args) == 2:
+        ok = snapshot(options.args[0], options.args[-1], keep, options)
+    else:
+        parser.print_help()
+        sys.exit("bad arguments")
+    return 0 if ok else 8
 
 def main():
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
@@ -104,24 +135,14 @@ def main():
     parser.add_argument('--btrfs', default="btrfs", help='btrfs command')
     parser.add_argument('--timestamp', default=timestamp(), help='timestamp for new snapshots')
     parser.add_argument('-D', '--directories', action='store_true', help='do subdirectories of arguments')
+    parser.add_argument('--snapshot_saver', default="~#@.", help='characters in snapshots not to be deleted')
+    parser.add_argument('--keep', type=int, default=-1, help='number of snapshots to keep')
     parser.add_argument('-n', '--dryrun', action='store_true', help='do not execute')
 
     parser.add_argument('args', nargs=argparse.REMAINDER, help='directories')
 
     options = parser.parse_args()
-
-    if options.config:
-        ok = snapshot_with_config(options)
-    elif options.directories and len(options.args) >= 2:
-        ok = True
-        for src in options.args[0:-1]:
-            ok = snapshot_directories(src, options.args[-1], options) and ok
-    elif len(options.args) == 2:
-        ok = snapshot(options.args[0], options.args[-1], options)
-    else:
-        parser.print_help()
-        sys.exit("bad arguments")
-    sys.exit(0 if ok else 8)
+    sys.exit(run(options, parser))
 
 if __name__ == "__main__":
     main()
