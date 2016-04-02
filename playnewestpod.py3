@@ -26,9 +26,14 @@ import urllib.request
 def myname():
     return os.path.basename(sys.argv[0])
 
+def verbose(options, level, *message):
+    if options.verbosity >= level:
+        print(myname() + ":", *message, file=sys.stderr)
+
 PlayAble = collections.namedtuple('PlayAble', ['date', 'guid', 'url', 'feed', 'channel', 'title'])
 
 def scan(feedurl, played, options):
+    verbose(options, 1, "scanning", feedurl)
     podcasts = []
     parsed = podcastparser.parse(feedurl, urllib.request.urlopen(feedurl))
     channel = parsed['title']
@@ -38,7 +43,9 @@ def scan(feedurl, played, options):
             for enclosure in episode['enclosures']:
                 if enclosure['mime_type'].startswith('audio/'):
                     date = int(episode['published'])
-                    podcasts.append(PlayAble(date, guid, enclosure['url'], feedurl, channel, episode['title']))
+                    p = PlayAble(date, guid, enclosure['url'], feedurl, channel, episode['title'])
+                    podcasts.append(p)
+                    verbose(options, 2, p)
     return podcasts
 
 def play(playable, played, options):
@@ -51,7 +58,7 @@ def play(playable, played, options):
                 file=tmp)
         print(playable.url, file=tmp)
         tmp.flush()
-        cmd = subprocess.Popen([options.player, "--play-and-exit", tmp.name])
+        cmd = subprocess.Popen([options.player, options.player_option, tmp.name])
         try:
             r = cmd.wait(options.min_play_time)
         except subprocess.TimeoutExpired:
@@ -73,6 +80,7 @@ def main():
     parser.add_argument("--min_play_time", metavar="SECONDS", type=int, default=9,
             help="minimum to consider a podcast played")
     parser.add_argument("--player", metavar="COMMAND", default="videolan", help="command to play a url")
+    parser.add_argument("--player_option", metavar="OPTION", default="--play-and-exit", help="option for command to play a url")
     parser.add_argument("--datefmt", metavar="STRFTIME", default="%d/%m/%Y", help="strftime format for dates")
     parser.add_argument("--cache", metavar="DIRECTORY", default=os.path.expanduser("~/.cache/playnewestpod"),
             help="stock list of played podcasts")
@@ -81,7 +89,7 @@ def main():
     parser.add_argument('-a', "--add", action="store_true", help="add podcast urls to list")
     parser.add_argument("--loop", action="store_true", help="play all podcasts")
 
-    parser.add_argument('urls', nargs=argparse.REMAINDER, help='file to convert')
+    parser.add_argument('urls', nargs=argparse.REMAINDER, help='urls to (permanently) add to the play list')
 
     options = parser.parse_args()
     podcasts = os.path.join(options.config, "podcasts")
