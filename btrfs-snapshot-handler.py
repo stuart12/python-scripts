@@ -21,11 +21,15 @@ import configparser
 try:
     import pytz
 except ImportError:
-    print(": on Debian do; sudo apt-get install python3-tz")
+    print(": on Debian do; sudo apt-get install python3-tz", file=sys.stderr)
     raise
 import pytz.reference
 import datetime
-import dateutil.parser
+try:
+    import dateutil.parser
+except ImportError:
+    print(": on Debian do; sudo apt-get install python3-dateutil", file=sys.stderr)
+    raise
 
 def timestamp():
     local_system_utc = pytz.utc.localize(datetime.datetime.utcnow())
