@@ -18,7 +18,11 @@ import subprocess
 import shlex
 import argparse
 import configparser
-import pytz
+try:
+    import pytz
+except ImportError:
+    print(": on Debian do; sudo apt-get install python3-tz")
+    raise
 import pytz.reference
 import datetime
 import dateutil.parser
