@@ -108,7 +108,7 @@ def snapshot_with_config(keep, options):
         if dst == None:
             dst = os.path.join(section.get("destinationdirectory", None), section_name)
 #        verbose(options, "Section: %s %s -> %s" % (section_name, src, dst))
-        ok = snapshot(src, dst, section.getint("keep", options.keep), options) and ok
+        ok = snapshot(src, dst, section.getint("keep", -1) if keep is None else keep, options) and ok
     return ok
 
 def snapshot_directories(src_dir, dst_dir, options):
@@ -144,7 +144,7 @@ def main():
     parser.add_argument('--timestamp', default=timestamp(), help='timestamp for new snapshots')
     parser.add_argument('-D', '--directories', action='store_true', help='do subdirectories of arguments')
     parser.add_argument('--snapshot_saver', default="~#@.", help='characters in snapshots not to be deleted')
-    parser.add_argument('--keep', type=int, default=-1, help='number of snapshots to keep')
+    parser.add_argument('--keep', type=int, default=None, help='number of snapshots to keep')
     parser.add_argument('-n', '--dryrun', action='store_true', help='do not execute')
 
     parser.add_argument('args', nargs=argparse.REMAINDER, help='directories')
