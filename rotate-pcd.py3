@@ -25,8 +25,8 @@ def main():
 
 	parser.add_argument("-v", "--verbosity", action="count", default=0, help="increase output verbosity")
 	parser.add_argument("--quality", type=int, default=40, help="JPEG quality")
-	parser.add_argument("--height", type=int, default=30, help="height")
-	parser.add_argument("--width", type=int, default=40, help="width")
+	parser.add_argument("--height", type=int, default=0, help="height")
+	parser.add_argument("--width", type=int, default=0, help="width")
 	parser.add_argument("--output", help="output JPEG file")
 	parser.add_argument("--resizing_pp3", metavar="DUMMY", default=None, help="ignored")
 
@@ -38,13 +38,13 @@ def main():
 		parser.print_help()
 		sys.exit("bad arguments")
 
-
 	input = options.files[0]
 
 	command = ["convert" , "-quality", str(options.quality)]
-	sz = min(options.width, options.height)
-	command.extend(["-resize", "%dx%d^" % (sz, sz)])
-	if input.endswith(".pnd"):
+	if options.height and options.width:
+		sz = min(options.width, options.height)
+		command.extend(["-resize", "%dx%d^" % (sz, sz)])
+	if input.endswith(".pcd"):
 		command.append(input + "[5]")
 	else:
 		command.append(input)
