@@ -173,7 +173,7 @@ def format_contact(contact, troff, min_pager, options):
 		else:
 			out += ' ' + email.value
 
-	return out
+	return out.decode('utf-8')
 
 def strip_accents(uc):
 	if uc == '':
@@ -192,10 +192,10 @@ def eclose(evolution, errors, cmd):
 		sys.stderr.writelines(errors)
 		raise MyError("%s failed (%d)" % (cmd[0], evolution.returncode))
 
-def matcher(unicode, expressions, what):
-#	print "matching", what, "=", `unicode`
+def matcher(s, expressions, what):
+	#print("matching", what, "=", repr(s))
 	for e in expressions:
-		if e.search(strip_accents(unicode)):
+		if e.search(strip_accents(unicode(s, "utf-8"))):
 			return True
 	return False
 
@@ -204,7 +204,9 @@ def match(contact, expressions):
 #	print(contact)
 	for k in ("org", ):
 		for l in contact.contents.get(k, []):
-			for m in l.value:
+			m = l.value
+			if True:
+			#for m in l.value:
 				if matcher(m, expressions, k):
 					return True
 
@@ -246,6 +248,7 @@ def show_contacts(vcal, args, options):
 	for contact in vobject.readComponents(vcal):
 		if (match(contact, expressions)):
 #			print dir(contact), contact.n.value.__doc__, `contact.n.value.given`, dir(contact.n.value)
+			#print(contact)
 			print(format_contact(contact, False, 0, options).encode('utf-8'))
 #		express: for e in expressions:
 #			for k in ("fn", "n", "org"):
