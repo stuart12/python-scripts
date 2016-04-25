@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-# btrfs-snapshot a set of btrfs filesystems.
+# btrfs-snapshot-handler.py: snapshot a set of btrfs filesystems.
 # Copyright (C) 2015 Stuart Pook (http://www.pook.it)
 #
 # This program is free software: you can redistribute it and/or modify it under
@@ -10,6 +10,12 @@
 # or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
 # more details.  You should have received a copy of the GNU General Public
 # License along with this program.  If not, see <http://www.gnu.org/licenses/>.
+#
+# http://www.spinics.net/lists/linux-btrfs/msg52131.html
+# Btrfs has scaling issues when there's too many snapshots.  The 
+# recommendation I've been using is a target of no more than 250 snapshots 
+# per subvolume, with a target of no more than eight subvolumes and ideally 
+# no more than four subvolumes being snapshotted per filesystem,
 
 import os
 import sys
