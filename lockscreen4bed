@@ -47,7 +47,7 @@ def main():
     parser.add_argument("-v", "--verbosity", action="count", default=0, help="increase output verbosity")
     #parser.add_argument("--min_play_time", metavar="SECONDS", type=int, default=9, help="minimum")
     parser.add_argument("-m", "--minutes", metavar="MINUTES", default="14,29,44,59", help="minutes in cron format")
-    parser.add_argument("-H", "--hours", metavar="HORS", default="0-4,22-23", help="hours in cron format")
+    parser.add_argument("-H", "--hours", metavar="HOURS", default="0-4,22-23", help="hours in cron format")
     #parser.add_argument('-a', "--add", action="store_true", help="add podcast urls to list")
     #parser.add_argument("--loop", action="store_true", help="play all podcasts")
 
