@@ -363,7 +363,7 @@ def read_btrfs_coroutine(entry, stem, fname, options):
 
 				with open(fencrypted, "rb") as encrypted:
 						q = multiprocessing.Queue()
-						data_checker = multiprocessing.Process(target=put_result, args=(functools.partial(read_write_md5, b"", encrypted, gpg.stdin, options), q), daemon=True)
+						data_checker = multiprocessing.Process(target=put_result, args=(functools.partial(read_write_md5, b"", encrypted, gpg.stdin, None, options), q), daemon=True)
 						data_checker.start()
 
 				gpg.stdin.close()
@@ -439,7 +439,7 @@ def read_md5_coroutine(entry, stem, fname, options):
 		with open(input_file, "rb") as input:
 			with open(tmp, "wb") as output:
 				q = multiprocessing.Queue()
-				worker = multiprocessing.Process(target=put_result, args=(functools.partial(read_write_md5, b"", input, output, options), q), daemon=True)
+				worker = multiprocessing.Process(target=put_result, args=(functools.partial(read_write_md5, b"", input, output, None, options), q), daemon=True)
 				worker.start()
 				verbose(options, "started copy", input_file, "to", tmp)
 				yield
@@ -492,7 +492,7 @@ def main():
 	parser.add_option("--btrfs_verbose", action="store_true", help="give verbose flag to btrfs")
 	parser.add_option("-5", "--check_md5", action="store_true", help="check MD5 sums of generated files")
 	parser.add_option("-0", "--full", action="store_true", help="do full backups")
-	parser.add_option("--output", default="", help="output directory [%default]")
+	parser.add_option("--output", default=".", help="output directory [%default]")
 	parser.add_option("-C", "--config", default="/etc/local/btrfs-snapshot-sender.conf", help="config file [%default]")
 	parser.add_option("--config_dir", default="/etc/local/btrfs-snapshot-sender.d", help="directory of config files [%default]")
 	parser.add_option("--config_dir_contents_suffix", default=".conf", help="suffix for each file in directory of config files [%default]")
