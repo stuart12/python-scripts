@@ -129,10 +129,12 @@ def undistort(inputfile, options):
 	im = cv2.imread(inputfile)
 	ih, iw = im.shape[0], im.shape[1]
 
-	width = options.width if options.width else iw
-	height = options.height if options.height else ih
+	owidth = options.width
+	oheight = options.height
 	if ih > iw:
-		width, height = height, width
+		owidth, oheight = oheight, owidth
+	width = owidth if owidth else iw
+	height = oheight if oheight else ih
 
 	mod = lensfunpy.Modifier(lens, cam.crop_factor, iw, ih)
 	mod.initialize(required_info.focal_length, required_info.aperture, required_info.subject_distance)
@@ -163,7 +165,7 @@ def main():
 	parser.add_option("--resizing_pp3", metavar="DUMMY", help="ignored [%default]")
 	parser.add_option("--no_dimensions_symlink", action="store_true", help="don't make any symlinks even if the dimensions seem ok")
 	parser.add_option("-m", "--size_margin", type='float', default=1.1, help="margin for files almost the same size [%default]")
-	parser.add_option("--ratio_change", type='float', default=0.001, help="maximum accepted ratio change after resize")
+	parser.add_option("--ratio_change", type='float', default=0.002, help="maximum accepted ratio change after resize [%default]")
 	parser.add_option("-w", "--width", type='int', default=None, help="output width [%default]")
 	parser.add_option("--height", type='int', default=None, help="output height [%default]")
 	parser.add_option("-q", "--quality", type='int', default=20, help="output JPEG quality [%default]")
