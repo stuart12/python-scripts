@@ -90,7 +90,7 @@ def read_directory(dirname, base_suffixes, sidecar_suffixes, options):
 
 def get_base_files(d, base_suffixes, sidecar_suffixes, options):
     base_files = {} # basename -> filenames
-    for subdir in os.listdir(options.snapshots):
+    for subdir in sorted(os.listdir(options.snapshots)):
         base_files.update(read_directory(os.path.join(os.path.realpath(options.snapshots), subdir, d), base_suffixes, sidecar_suffixes, options))
 
     base_files.update(read_directory(os.path.join(os.path.realpath(options.current), d), base_suffixes, sidecar_suffixes, options))
