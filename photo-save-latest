@@ -1,0 +1,166 @@
+#!/usr/bin/python3
+# photo-save-latest Copyright (c) 2016 Stuart Pook (http://www.pook.it/)
+# This program is free software: you can redistribute it and/or modify it under
+# the terms of the GNU General Public License as published by the Free Software
+# Foundation, either version 3 of the License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+# FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+import argparse
+import sys
+import os
+import shlex
+import re
+
+def myname():
+    return os.path.basename(sys.argv[0])
+
+def verbose1(v, what, level, options):
+    if options.verbosity >= level:
+        print(myname() + ":", what, v, file=sys.stderr)
+
+def verbose(options, level, *message):
+    if options.verbosity >= level:
+        print(myname() + ":", *message, file=sys.stderr)
+
+def quote_command(command):
+    return " ".join(shlex.quote(x) for x in command)
+
+def mkdir(dname, options):
+    if options.dryrun:
+        print("mkdir", shlex.quote(dname))
+    else:
+        verbose(options, 2, "mkdir", shlex.quote(dname))
+        os.mkdir(dname)
+
+def symlink(src, dst, options):
+    if options.dryrun:
+        print("ln -s", shlex.quote(src), shlex.quote(dst))
+    else:
+        verbose(options, 2, "ln -s", shlex.quote(src), shlex.quote(dst))
+        os.symlink(src, dst)
+        os.stat(dst)
+
+def look_pattern(dirname, pattern, options):
+    for ent in os.listdir(dirname):
+        if pattern.search(ent):
+            return True
+    return False
+
+def search_for_pattern(options):
+    pattern = re.compile("|".join("(" + a + ")" for a in options.args))
+    r = []
+    dirname = options.current
+    for ent in os.listdir(dirname):
+        fn = os.path.join(dirname, ent)
+        if os.path.isdir(fn):
+            if pattern.search(fn) or look_pattern(fn, pattern, options):
+                r.append(ent)
+    return r
+
+def read_directory(dirname, base_suffixes, sidecar_suffixes, options):
+    bases = {}
+    sidecars = {}
+    try:
+        files = os.listdir(dirname)
+    except FileNotFoundError:
+        pass
+    else:
+        for ent in files:
+            fields = os.path.splitext(ent)
+            if len(fields) == 2:
+                key = fields[0].split(' ')[0]
+                ext = fields[1][1:]
+                if ext in base_suffixes:
+                    bases[fields[0].split(' ')[0]] = [fields[0], os.path.join(dirname, ent)]
+                elif ext in sidecar_suffixes:
+                    sidecars.setdefault(fields[0], []).append(os.path.join(dirname, ent))
+        verbose(options, 3, dirname, "bases", bases)
+
+    base_files = {}
+    for key, value in bases.items():
+        base, fname = value
+        base_files[key] = [fname] + sidecars.get(base, [])
+    verbose(options, 3, dirname, "base_files", base_files)
+    return base_files
+
+def get_base_files(d, base_suffixes, sidecar_suffixes, options):
+    base_files = {} # basename -> filenames
+    for subdir in os.listdir(options.snapshots):
+        base_files.update(read_directory(os.path.join(os.path.realpath(options.snapshots), subdir, d), base_suffixes, sidecar_suffixes, options))
+
+    base_files.update(read_directory(os.path.join(os.path.realpath(options.current), d), base_suffixes, sidecar_suffixes, options))
+    return base_files
+
+class CacheMkdir:
+    def __init__(self, options):
+        self.options = options
+    done = set()
+    def mkdir(self, dirname):
+        n = len(self.done)
+        self.done.add(dirname)
+        if n != len(self.done):
+            mkdir(dirname, self.options)
+        return dirname
+
+def do_directory(d, base_suffixes, sidecar_suffixes, images, cache, options):
+    base_files = get_base_files(d, base_suffixes, sidecar_suffixes, options)
+
+    for value in base_files.values():
+        for fn in value:
+            raw_dir = cache.mkdir(os.path.join(options.output, options.raw_dir))
+            dirname = cache.mkdir(os.path.join(raw_dir, d))
+            base = os.path.basename(fn)
+            symlink(fn, os.path.join(dirname, base), options)
+
+        jbase = os.path.splitext(base)[0] + "." + options.image_suffix
+        jpeg = os.path.join(images, d, jbase)
+        if os.path.exists(jpeg):
+            image_dir = cache.mkdir(os.path.join(options.output, options.image_dir))
+            dirname = cache.mkdir(os.path.join(image_dir, d))
+            symlink(jpeg, os.path.join(dirname, jbase), options)
+
+def save_photos(options):
+    directories = search_for_pattern(options) if options.pattern else options.args
+    if options.list_directories:
+        print(" ".join(shlex.quote(d) for d in directories))
+        return
+    verbose(options, 1, "directories:", " ".join(shlex.quote(l) for l in directories))
+    base_suffixes = frozenset(options.base)
+    sidecar_suffixes = frozenset(options.sidecars)
+    images = os.path.realpath(options.images)
+    cache_mkdir = CacheMkdir(options)
+    for d in directories:
+        do_directory(d, base_suffixes, sidecar_suffixes, images, cache_mkdir, options)
+
+def main():
+    parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+            description="copy latest version of each photo")
+
+    parser.add_argument("-v", "--verbosity", "--verbose", action="count", default=0, help="increase output verbosity")
+    #parser.add_argument("--min_play_time", metavar="SECONDS", type=int, default=9, help="minimum")
+    parser.add_argument("--base", action="append", metavar="SUFFIX", default=["cr2", "jpg"], help="raw file suffixes")
+    parser.add_argument("--image_suffix", metavar="SUFFIX", default="jpg", help="image suffixes")
+    parser.add_argument("--sidecars", action="append", metavar="SUFFIX", default=["pp3"], help="sidecar suffixes")
+    parser.add_argument("--snapshots", metavar="DIRECTORY", default="/disks/snapshots/photos", help="snapshots root directory")
+    parser.add_argument("--raw_dir", metavar="SUBDIRECTORY", default="raw", help="raw output subdirectory")
+    parser.add_argument("--image_dir", metavar="SUBDIRECTORY", default="jpeg", help="jpeg output subdirectory")
+    parser.add_argument("-o", "--output", metavar="DIRECTORY", default=".", help="output directory")
+    parser.add_argument("--current", metavar="DIRECTORY", default=os.path.expanduser("~/photos"), help="snapshots root directory")
+    parser.add_argument("--images", metavar="DIRECTORY", default="/disks/scratch/stuart/converted-photos2/windy", help="directory of JPEGs")
+    parser.add_argument('-p', "--pattern", action="store_true", help="arguments are patterns")
+    parser.add_argument('-l', "--list_directories", action="store_true", help="just list diroectories")
+    parser.add_argument("-n", "--dryrun", action="store_true", help="dryrun")
+
+    parser.add_argument('args', nargs=argparse.REMAINDER, help='patterns or directories')
+
+    options = parser.parse_args()
+
+    save_photos(options)
+
+if __name__ == "__main__":
+    main()
