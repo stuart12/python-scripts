@@ -143,8 +143,15 @@ def main():
 
     parser.add_argument("-v", "--verbosity", "--verbose", action="count", default=0, help="increase output verbosity")
     #parser.add_argument("--min_play_time", metavar="SECONDS", type=int, default=9, help="minimum")
-    parser.add_argument("--base", action="append", metavar="SUFFIX", default=["cr2", "jpg"], help="raw file suffixes")
-    parser.add_argument("--image_suffix", metavar="SUFFIX", default="jpg", help="image suffixes")
+    parser.add_argument("--base", action="append", metavar="SUFFIX",
+        default=[
+            "mp4",
+            "png",
+            "cr2",
+            "jpg",
+        ],
+        help="raw file suffixes")
+    parser.add_argument("--image_suffix", metavar="SUFFIX", default="jpg", help="image suffix")
     parser.add_argument("--sidecars", action="append", metavar="SUFFIX", default=["pp3"], help="sidecar suffixes")
     parser.add_argument("--snapshots", metavar="DIRECTORY", default="/disks/snapshots/photos", help="snapshots root directory")
     parser.add_argument("--raw_dir", metavar="SUBDIRECTORY", default="raw", help="raw output subdirectory")
