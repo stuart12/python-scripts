@@ -88,12 +88,12 @@ def read_directory(dirname, base_suffixes, sidecar_suffixes, options):
     verbose(options, 3, dirname, "base_files", base_files)
     return base_files
 
-def get_base_files(d, base_suffixes, sidecar_suffixes, options):
-    base_files = {} # basename -> filenames
-    for subdir in sorted(os.listdir(options.snapshots)):
-        base_files.update(read_directory(os.path.join(os.path.realpath(options.snapshots), subdir, d), base_suffixes, sidecar_suffixes, options))
+def get_base_files(d, current_photos, snapshots, base_suffixes, sidecar_suffixes, options):
+    base_files = {} # photoID -> filenames
+    for snapshot in snapshots:
+        base_files.update(read_directory(os.path.join(snapshot, d), base_suffixes, sidecar_suffixes, options))
 
-    base_files.update(read_directory(os.path.join(os.path.realpath(options.current), d), base_suffixes, sidecar_suffixes, options))
+    base_files.update(read_directory(os.path.join(current_photos, d), base_suffixes, sidecar_suffixes, options))
     return base_files
 
 class CacheMkdir:
@@ -107,8 +107,8 @@ class CacheMkdir:
             mkdir(dirname, self.options)
         return dirname
 
-def do_directory(d, base_suffixes, sidecar_suffixes, images, cache, options):
-    base_files = get_base_files(d, base_suffixes, sidecar_suffixes, options)
+def do_directory(d, current_photos, snapshots, base_suffixes, sidecar_suffixes, images, cache, options):
+    base_files = get_base_files(d, current_photos, snapshots, base_suffixes, sidecar_suffixes, options)
 
     for value in base_files.values():
         for fn in value:
@@ -130,12 +130,15 @@ def save_photos(options):
         print(" ".join(shlex.quote(d) for d in directories))
         return
     verbose(options, 1, "directories:", " ".join(shlex.quote(l) for l in directories))
+    real_snapshots_dir = os.path.realpath(options.snapshots)
+    snapshots = [os.path.join(real_snapshots_dir, d) for d in sorted(os.listdir(options.snapshots))]
+    current_photos = os.path.realpath(options.current)
     base_suffixes = frozenset(options.base)
     sidecar_suffixes = frozenset(options.sidecars)
     images = os.path.realpath(options.images)
     cache_mkdir = CacheMkdir(options)
     for d in directories:
-        do_directory(d, base_suffixes, sidecar_suffixes, images, cache_mkdir, options)
+        do_directory(d, current_photos, snapshots, base_suffixes, sidecar_suffixes, images, cache_mkdir, options)
 
 def main():
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter,
