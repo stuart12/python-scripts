@@ -1,5 +1,6 @@
 #!/usr/bin/python3
 # photo-save-latest Copyright (c) 2016 Stuart Pook (http://www.pook.it/)
+# Save the latest copy of even-deleted photos and their sidecars by scanning snapshots
 # This program is free software: you can redistribute it and/or modify it under
 # the terms of the GNU General Public License as published by the Free Software
 # Foundation, either version 3 of the License, or (at your option) any later version.
