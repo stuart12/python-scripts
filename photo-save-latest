@@ -72,10 +72,10 @@ def read_directory(dirname, base_suffixes, sidecar_suffixes, options):
         pass
     else:
         for ent in files:
-            fields = os.path.splitext(ent)
+            fields = ent.split('.', 1)
             if len(fields) == 2:
                 key = fields[0].split(' ')[0]
-                ext = fields[1][1:]
+                ext = fields[1]
                 if ext in base_suffixes:
                     bases[fields[0].split(' ')[0]] = [fields[0], os.path.join(dirname, ent)]
                 elif ext in sidecar_suffixes:
@@ -85,7 +85,7 @@ def read_directory(dirname, base_suffixes, sidecar_suffixes, options):
     base_files = {}
     for key, value in bases.items():
         base, fname = value
-        base_files[key] = [fname] + sidecars.get(base, [])
+        base_files[key] = [base, fname] + sidecars.get(base, [])
     verbose(options, 3, dirname, "base_files", base_files)
     return base_files
 
@@ -112,13 +112,13 @@ def do_directory(d, current_photos, snapshots, base_suffixes, sidecar_suffixes, 
     base_files = get_base_files(d, current_photos, snapshots, base_suffixes, sidecar_suffixes, options)
 
     for value in base_files.values():
-        for fn in value:
+        for fn in value[1:]:
             raw_dir = cache.mkdir(os.path.join(options.output, options.raw_dir))
             dirname = cache.mkdir(os.path.join(raw_dir, d))
             base = os.path.basename(fn)
             symlink(fn, os.path.join(dirname, base), options)
 
-        jbase = os.path.splitext(base)[0] + "." + options.image_suffix
+        jbase = value[0] + "." + options.image_suffix
         jpeg = os.path.join(images, d, jbase)
         if os.path.exists(jpeg):
             image_dir = cache.mkdir(os.path.join(options.output, options.image_dir))
@@ -156,7 +156,7 @@ def main():
         ],
         help="raw file suffixes")
     parser.add_argument("--image_suffix", metavar="SUFFIX", default="jpg", help="image suffix")
-    parser.add_argument("--sidecars", action="append", metavar="SUFFIX", default=["pp3"], help="sidecar suffixes")
+    parser.add_argument("--sidecars", action="append", metavar="SUFFIX", default=["cr2.pp3"], help="sidecar suffixes")
     parser.add_argument("--snapshots", metavar="DIRECTORY", default="/disks/snapshots/photos", help="snapshots root directory")
     parser.add_argument("--raw_dir", metavar="SUBDIRECTORY", default="raw", help="raw output subdirectory")
     parser.add_argument("--image_dir", metavar="SUBDIRECTORY", default="jpeg", help="jpeg output subdirectory")
