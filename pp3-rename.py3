@@ -64,8 +64,7 @@ def main():
 	options = parser.parse_args()
 
 	if len(options.directories) == 0:
-		parser.print_help()
-		sys.exit("bad arguments")
+		fix(".", options)
 
 	for d in options.directories:
 		fix(d, options)
