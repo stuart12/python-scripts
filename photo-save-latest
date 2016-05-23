@@ -16,6 +16,7 @@ import sys
 import os
 import shlex
 import re
+import collections
 
 def myname():
     return os.path.basename(sys.argv[0])
@@ -35,14 +36,14 @@ def mkdir(dname, options):
     if options.dryrun:
         print("mkdir", shlex.quote(dname))
     else:
-        verbose(options, 2, "mkdir", shlex.quote(dname))
+        verbose(options, 3, "mkdir", shlex.quote(dname))
         os.mkdir(dname)
 
 def symlink(src, dst, options):
     if options.dryrun:
         print("ln -s", shlex.quote(src), shlex.quote(dst))
     else:
-        verbose(options, 2, "ln -s", shlex.quote(src), shlex.quote(dst))
+        verbose(options, 3, "ln -s", shlex.quote(src), shlex.quote(dst))
         os.symlink(src, dst)
         os.stat(dst)
 
@@ -52,8 +53,8 @@ def look_pattern(dirname, pattern, options):
             return True
     return False
 
-def search_for_pattern(options):
-    pattern = re.compile("|".join("(" + a + ")" for a in options.args))
+def search_for_pattern(options, pattern):
+    #pattern = re.compile("|".join("(" + a + ")" for a in options.args))
     r = []
     dirname = options.current
     for ent in os.listdir(dirname):
@@ -63,7 +64,9 @@ def search_for_pattern(options):
                 r.append(ent)
     return r
 
-def read_directory(dirname, base_suffixes, sidecar_suffixes, options):
+def read_directory(dirname, base_suffixes, sidecar_suffixes, is_current, options):
+    PhotoEntry = collections.namedtuple('PhotoEntry', ['long_name', 'file_name'])
+
     bases = {}
     sidecars = {}
     try:
@@ -76,25 +79,27 @@ def read_directory(dirname, base_suffixes, sidecar_suffixes, options):
             if len(fields) == 2:
                 key = fields[0].split(' ')[0]
                 ext = fields[1]
+                filename = os.path.join(dirname, ent)
                 if ext in base_suffixes:
-                    bases[fields[0].split(' ')[0]] = [fields[0], os.path.join(dirname, ent)]
+                    bases[fields[0].split(' ')[0]] = PhotoEntry(long_name=fields[0], file_name=filename)
                 elif ext in sidecar_suffixes:
-                    sidecars.setdefault(fields[0], []).append(os.path.join(dirname, ent))
+                    sidecars.setdefault(fields[0], []).append(filename)
         verbose(options, 3, dirname, "bases", bases)
 
+    LongAndFilenames = collections.namedtuple('LongAndFilenames', ['long_name', 'file_names', 'is_current'])
     base_files = {}
     for key, value in bases.items():
         base, fname = value
-        base_files[key] = [base, fname] + sidecars.get(base, [])
+        base_files[key] = LongAndFilenames(long_name=value.long_name, file_names=[value.file_name] + sidecars.get(value.long_name, []), is_current=is_current)
     verbose(options, 3, dirname, "base_files", base_files)
     return base_files
 
 def get_base_files(d, current_photos, snapshots, base_suffixes, sidecar_suffixes, options):
     base_files = {} # photoID -> filenames
     for snapshot in snapshots:
-        base_files.update(read_directory(os.path.join(snapshot, d), base_suffixes, sidecar_suffixes, options))
+        base_files.update(read_directory(os.path.join(snapshot, d), base_suffixes, sidecar_suffixes, False, options))
 
-    base_files.update(read_directory(os.path.join(current_photos, d), base_suffixes, sidecar_suffixes, options))
+    base_files.update(read_directory(os.path.join(current_photos, d), base_suffixes, sidecar_suffixes, True, options))
     return base_files
 
 class CacheMkdir:
@@ -108,25 +113,43 @@ class CacheMkdir:
             mkdir(dirname, self.options)
         return dirname
 
-def do_directory(d, current_photos, snapshots, base_suffixes, sidecar_suffixes, images, cache, options):
+def do_directory(d, current_photos, snapshots, base_suffixes, sidecar_suffixes, images, cache, photo_pattern, options):
     base_files = get_base_files(d, current_photos, snapshots, base_suffixes, sidecar_suffixes, options)
 
+    found = 0
+    current = 0
     for value in base_files.values():
-        for fn in value[1:]:
-            raw_dir = cache.mkdir(os.path.join(options.output, options.raw_dir))
-            dirname = cache.mkdir(os.path.join(raw_dir, d))
-            base = os.path.basename(fn)
-            symlink(fn, os.path.join(dirname, base), options)
+        if value.is_current:
+            current += 1
+            if photo_pattern.search(value.long_name):
+                found += 1
+    save_all = found * 100.0 / current >= options.pattern_minimum
+    verbose(options, 2, d, found, current, "%.2f%%" % (found * 100.0 / current))
+    if not save_all:
+        verbose(options, 1, "just matched photos in", d, found, current, "%.2f%%" % (found * 100.0 / current))
 
-        jbase = value[0] + "." + options.image_suffix
-        jpeg = os.path.join(images, d, jbase)
-        if os.path.exists(jpeg):
-            image_dir = cache.mkdir(os.path.join(options.output, options.image_dir))
-            dirname = cache.mkdir(os.path.join(image_dir, d))
-            symlink(jpeg, os.path.join(dirname, jbase), options)
+    for value in base_files.values():
+        if save_all or photo_pattern.search(value.long_name):
+            for fn in value.file_names:
+                raw_dir = cache.mkdir(os.path.join(options.output, options.raw_dir))
+                dirname = cache.mkdir(os.path.join(raw_dir, d))
+                base = os.path.basename(fn)
+                symlink(fn, os.path.join(dirname, base), options)
+
+            jbase = value.long_name + "." + options.image_suffix
+            jpeg = os.path.join(images, d, jbase)
+            if os.path.exists(jpeg):
+                image_dir = cache.mkdir(os.path.join(options.output, options.image_dir))
+                dirname = cache.mkdir(os.path.join(image_dir, d))
+                symlink(jpeg, os.path.join(dirname, jbase), options)
 
 def save_photos(options):
-    directories = search_for_pattern(options) if options.pattern else options.args
+    if options.pattern:
+        pattern = re.compile("|".join("(" + a + ")" for a in options.args))
+        directories = search_for_pattern(options, pattern)
+    else:
+        pattern = re.compile(".")
+        directories = options.args
     if options.list_directories:
         print(" ".join(shlex.quote(d) for d in directories))
         return
@@ -139,7 +162,7 @@ def save_photos(options):
     images = os.path.realpath(options.images)
     cache_mkdir = CacheMkdir(options)
     for d in directories:
-        do_directory(d, current_photos, snapshots, base_suffixes, sidecar_suffixes, images, cache_mkdir, options)
+        do_directory(d, current_photos, snapshots, base_suffixes, sidecar_suffixes, images, cache_mkdir, pattern, options)
 
 def main():
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter,
@@ -149,7 +172,6 @@ def main():
     #parser.add_argument("--min_play_time", metavar="SECONDS", type=int, default=9, help="minimum")
     parser.add_argument("--base", action="append", metavar="SUFFIX",
         default=[
-            "mp4",
             "png",
             "cr2",
             "jpg",
@@ -166,6 +188,7 @@ def main():
     parser.add_argument('-p', "--pattern", action="store_true", help="arguments are patterns")
     parser.add_argument('-l', "--list_directories", action="store_true", help="just list diroectories")
     parser.add_argument("-n", "--dryrun", action="store_true", help="dryrun")
+    parser.add_argument("-P", "--pattern_minimum", type=float, metavar="PERCENT", default=25, help="miximum pattern matches to get all photos")
 
     parser.add_argument('args', nargs=argparse.REMAINDER, help='patterns or directories')
 
