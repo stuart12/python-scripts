@@ -116,7 +116,6 @@ def look_for_directories(camera, where, seen, found, options):
 				if not m.skip:
 					jobs.extend(get_files(camera, nd, m.outsuffix + d[:-len(m.insuffix)], m.mappings, seen, found, options))
 					verbose(options, "have a match on", d, "with", m)
-					return jobs
 				break
 		else:
 			error(options, "unknown dir", nd)
