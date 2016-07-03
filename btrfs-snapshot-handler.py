@@ -149,7 +149,7 @@ def main():
     parser.add_argument('--btrfs', default="btrfs", help='btrfs command')
     parser.add_argument('--timestamp', default=timestamp(), help='timestamp for new snapshots')
     parser.add_argument('-D', '--directories', action='store_true', help='do subdirectories of arguments')
-    parser.add_argument('--snapshot_saver', default="~#@.", help='characters in snapshots not to be deleted')
+    parser.add_argument('--snapshot_saver', default="~#@", help='characters in snapshots not to be deleted')
     parser.add_argument('--keep', type=int, default=None, help='number of snapshots to keep')
     parser.add_argument('-n', '--dryrun', action='store_true', help='do not execute')
 
