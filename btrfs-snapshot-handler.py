@@ -32,10 +32,11 @@ except ImportError:
 import pytz.reference
 import datetime
 try:
-    import dateutil.parser
+    import dateutil
 except ImportError:
     print(": on Debian do; sudo apt-get install python3-dateutil", file=sys.stderr)
     raise
+import dateutil.parser
 
 def timestamp():
     local_system_utc = pytz.utc.localize(datetime.datetime.utcnow())
@@ -83,24 +84,45 @@ def check_call(command, options):
     p = subprocess.Popen(command, stderr=subprocess.STDOUT, stdout=stdout)
     return check_pipe(command, p, stdout, options) == 0
 
-def clean_snapshots(directory, keep, options):
-    if keep <= 0:
+def get_snapshots_to_delete(snapshots, keep, days, options):
+    ordered = sorted(snapshots)
+    consider = ordered[:-keep] if keep > 0 else ordered
+    if days < 0:
+        return consider
+    now = datetime.datetime.now(pytz.utc)
+    to_delete = []
+    for snap in consider:
+        dt = dateutil.parser.parse(snap)
+        age = (now - dt).days
+        if age < days:
+            verbose(options, "stopping deletes at %s (%s) as age %d is not greater than limit %d" % (snap, dt, age, days))
+            break
+        to_delete.append(snap)
+    return to_delete
+
+def clean_snapshots(directory, keep, days, options):
+    if keep <= 0 and days <= 0:
         return True
     snapshots = [fn for fn in os.listdir(directory) if all(c not in options.snapshot_saver for c in fn)]
     verbose(options, "have %d snapshots in %s" % (len(snapshots), directory))
-    if len(snapshots) <= keep:
+    deleteable = get_snapshots_to_delete(snapshots, keep, days, options)
+    if not deleteable:
         return True
-    to_delete = [os.path.join(directory, sn) for sn in sorted(snapshots)[:-keep]]
+
+    to_delete = [os.path.join(directory, sn) for sn in deleteable]
     verbose(options, "delete %d snapshots in %s" % (len(to_delete), directory))
     return check_call([options.btrfs, "subvolume", "delete", *to_delete], options)
 
-def snapshot(src, dst_dir, keep, options):
+def snapshot(src, dst_dir, keep, days, options):
     dst = os.path.join(dst_dir, options.timestamp)
     if not check_call([options.btrfs, "subvolume", "snapshot", "-r", src, dst], options):
         return False
-    return clean_snapshots(dst_dir, keep, options)
+    return clean_snapshots(dst_dir, keep, days, options)
 
-def snapshot_with_config(keep, options):
+def get_overridable_int(section, name, forced, default):
+    return section.getint(name, default) if forced is None else forced
+
+def snapshot_with_config(keep, days, options):
     config = configparser.ConfigParser()
     with open(options.config) as f:
         config.read_file(f)
@@ -114,28 +136,31 @@ def snapshot_with_config(keep, options):
         if dst == None:
             dst = os.path.join(section.get("destinationdirectory", None), section_name)
 #        verbose(options, "Section: %s %s -> %s" % (section_name, src, dst))
-        ok = snapshot(src, dst, section.getint("keep", -1) if keep is None else keep, options) and ok
+        rkeep = get_overridable_int(section, "keep", keep, -1)
+        rdays = get_overridable_int(section, "days", days, -1)
+        ok = snapshot(src, dst, rkeep, rdays, options) and ok
     return ok
 
-def snapshot_directories(src_dir, dst_dir, options):
+def snapshot_directories(src_dir, dst_dir, keep, days, options):
     ok = True
     for subdir in os.listdir(src_dir):
-        ok = snapshot(os.path.join(src_dir, subdir), os.path.join(dst_dir, subdir), options) and ok
+        ok = snapshot(os.path.join(src_dir, subdir), os.path.join(dst_dir, subdir), keep, days, options) and ok
     return ok
 
 def run(options, parser):
     keep = options.keep
+    days = options.days
     if options.config:
         if len(options.args) != 0:
             parser.print_help()
             sys.exit("no arguments when config file used")
-        ok = snapshot_with_config(keep, options)
+        ok = snapshot_with_config(keep, days, options)
     elif options.directories and len(options.args) >= 2:
         ok = True
         for src in options.args[0:-1]:
-            ok = snapshot_directories(src, options.args[-1], keep, options) and ok
+            ok = snapshot_directories(src, options.args[-1], keep, days, options) and ok
     elif len(options.args) == 2:
-        ok = snapshot(options.args[0], options.args[-1], keep, options)
+        ok = snapshot(options.args[0], options.args[-1], keep, days, options)
     else:
         parser.print_help()
         sys.exit("bad arguments")
@@ -151,6 +176,7 @@ def main():
     parser.add_argument('-D', '--directories', action='store_true', help='do subdirectories of arguments')
     parser.add_argument('--snapshot_saver', default="~#@", help='characters in snapshots not to be deleted')
     parser.add_argument('--keep', type=int, default=None, help='number of snapshots to keep')
+    parser.add_argument('--days', type=int, default=None, help='age of oldest snapshots to keep')
     parser.add_argument('-n', '--dryrun', action='store_true', help='do not execute')
 
     parser.add_argument('args', nargs=argparse.REMAINDER, help='directories')
