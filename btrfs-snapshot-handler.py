@@ -1,6 +1,7 @@
 #!/usr/bin/python3
-# btrfs-snapshot-handler.py: snapshot a set of btrfs filesystems.
-# Copyright (C) 2015 Stuart Pook (http://www.pook.it)
+# btrfs-snapshot-handler.py: snapshot a set of btrfs filesystems and
+# remove all snapshots.
+# Copyright (C) 2015, 2016 Stuart Pook (http://www.pook.it)
 #
 # This program is free software: you can redistribute it and/or modify it under
 # the terms of the GNU General Public License as published by the Free Software
