@@ -87,23 +87,26 @@ def check_call(command, options):
 def get_snapshots_to_delete(snapshots, keep, days, options):
     ordered = sorted(snapshots)
     consider = ordered[:-keep] if keep > 0 else ordered
-    if days < 0:
+    if days < 0 or not consider:
         return consider
     now = datetime.datetime.now(pytz.utc)
-    to_delete = []
-    for snap in consider:
+    for index, snap in enumerate(consider):
         dt = dateutil.parser.parse(snap)
         age = (now - dt).days
         if age < days:
-            verbose(options, "stopping deletes at %s (%s) as age %d is not greater than limit %d" % (snap, dt, age, days))
+            verbose(options, "stopping deletes at %s (%s) as age %d days is not greater than limit %d" % (snap, dt, age, days))
             break
-        to_delete.append(snap)
-    return to_delete
+    else:
+        index += 1
+        verbose(options, "no age restriction (%d days) applied so deleting %d" % (days, index))
+    return consider[:index]
 
 def clean_snapshots(directory, keep, days, options):
     if keep <= 0 and days <= 0:
         return True
     snapshots = [fn for fn in os.listdir(directory) if all(c not in options.snapshot_saver for c in fn)]
+    if not snapshots:
+        return True
     verbose(options, "have %d snapshots in %s" % (len(snapshots), directory))
     deleteable = get_snapshots_to_delete(snapshots, keep, days, options)
     if not deleteable:
@@ -136,8 +139,8 @@ def snapshot_with_config(keep, days, options):
         if dst == None:
             dst = os.path.join(section.get("destinationdirectory", None), section_name)
 #        verbose(options, "Section: %s %s -> %s" % (section_name, src, dst))
-        rkeep = get_overridable_int(section, "keep", keep, -1)
         rdays = get_overridable_int(section, "days", days, -1)
+        rkeep = get_overridable_int(section, "keep", keep, rdays)
         ok = snapshot(src, dst, rkeep, rdays, options) and ok
     return ok
 
