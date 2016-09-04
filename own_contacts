@@ -192,10 +192,11 @@ def eclose(evolution, errors, cmd):
 		sys.stderr.writelines(errors)
 		raise MyError("%s failed (%d)" % (cmd[0], evolution.returncode))
 
-def matcher(s, expressions, what):
+def matcher(line, expressions, what):
 	#print("matching", what, "=", repr(s))
+	s = strip_accents(unicode(str(line), "utf-8"))
 	for e in expressions:
-		if e.search(strip_accents(unicode(s, "utf-8"))):
+		if e.search(s):
 			return True
 	return False
 
