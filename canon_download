@@ -96,7 +96,7 @@ def look_for_directories(camera, where, seen, found, options):
 			FileMapping(r"(?:IMG)_([0-9]{8})_([0-9]{6})\.jpg", r"\1_\2.jpg"),
 		]),
 		CameraInfo("CANON", "c", False, [
-			FileMapping(r"(?:MVI|IMG|MOV)_([0-9]{4})\.(JPG|MOV|CR2)", r"\1.\2"),
+			FileMapping(r"(?:MVI|_MG|IMG|MOV)_([0-9]{4})\.(JPG|MOV|CR2)", r"\1.\2"),
 		]),
 		CameraInfo("GOPRO", "g", False, [
 			FileMapping(r"GOPR([0-9]{4})\.JPG", r"\1.jpg"),
