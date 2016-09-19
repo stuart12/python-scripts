@@ -203,7 +203,7 @@ def matcher(line, expressions, what):
 
 def match(contact, expressions):
 #	print(contact)
-	for k in ("org", ):
+	for k in ("org", "title"):
 		for l in contact.contents.get(k, []):
 			m = l.value
 			if True:
@@ -213,9 +213,9 @@ def match(contact, expressions):
 
 	for k in ("n",):
 		for l in contact.contents.get(k, []):
-#			print "n 1= ", dir(l)
+			#print("n 1= ", dir(l))
 #			print "n a= ", l.prettyPrint()
-#			print "n 2= ", `l.value`
+			#print("n 2= ", `l.value`)
 #			print "n 3= ", dir(l.value)
 #			print "n 3 given = ", `l.value.given`
 #			print "n5=", strip_accents(l.value.given)
