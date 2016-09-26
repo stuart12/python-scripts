@@ -55,8 +55,9 @@ def run(options):
         if f.path.exists() and not f.path.is_symlink() and f.path.is_file():
             stat = f.path.stat()
             if stat.st_size == f.stat.st_size and stat.st_mtime > f.stat.st_mtime and f.md5 == md5sum(f.path, options):
-                verbose(options, "restoring", shlex.quote(f.path.path))
-                os.utime(f.path.path, ns=(stat.st_atime_ns, f.stat.st_mtime_ns))
+                fname = f.path.as_posix()
+                verbose(options, "restoring", shlex.quote(fname))
+                os.utime(fname, ns=(stat.st_atime_ns, f.stat.st_mtime_ns))
     return r
 
 def main():
