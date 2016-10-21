@@ -45,7 +45,7 @@ except ImportError:
 try:
     import lensfunpy
 except ImportError:
-    print("sudo apt-get install liblensfun0 liblensfun-dev && pip install lensfunpy")
+    print("sudo apt-get install liblensfun0 liblensfun-dev libglib2.0-dev && pip install lensfunpy")
     raise
 
 import gi.repository
