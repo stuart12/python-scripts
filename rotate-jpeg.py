@@ -19,14 +19,34 @@ from __future__ import print_function
 import os
 import subprocess
 import sys
-import Image
+try:
+    import Image
+except ImportError:
+    print("sudo apt-get install  python-pil python-imaging")
+    raise
 import string
 import optparse
-import pyexiv2
+try:
+    import pyexiv2
+except ImportError:
+    print("sudo apt-get install python-pyexiv2")
+    raise
 import collections
-import piexif
-import cv2
-import lensfunpy
+try:
+    import piexif
+except ImportError:
+    print("sudo apt-get install python-pip &&  pip install piexif")
+    raise
+try:
+    import cv2
+except ImportError:
+    print("sudo apt-get install python-opencv")
+    raise
+try:
+    import lensfunpy
+except ImportError:
+    print("sudo apt-get install liblensfun0 liblensfun-dev && pip install lensfunpy")
+    raise
 
 import gi.repository
 gi.require_version('GExiv2', '0.10')
