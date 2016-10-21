@@ -50,7 +50,11 @@ except ImportError:
 
 import gi.repository
 gi.require_version('GExiv2', '0.10')
-from gi.repository import GExiv2
+try:
+	from gi.repository import GExiv2
+except ImportError:
+    print("sudo apt-get install gir1.2-gexiv2-0.10")
+    raise
 
 def error(*message):
 	print(*message, file=sys.stderr)
