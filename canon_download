@@ -1,5 +1,5 @@
 #!/usr/bin/python2.6 -3
-# canon_download Copyright (C) 2012 Stuart Pook (http://www.pook.it/)
+# canon_download Copyright (C) 2012,2016 Stuart Pook (http://www.pook.it/)
 # Download from a Canon or GoPro camera the photos that have not already been seen.
 # https://github.com/alexdu/piggyphoto/blob/master/piggyphoto
 # http://magiclantern.wikia.com/wiki/Remote_control_with_PTP_and_Python
@@ -16,9 +16,13 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 from __future__ import print_function
-import piggyphoto
-import optparse
 import sys
+try:
+	import piggyphoto
+except ImportError:
+	print("sudo apt-get install python-piggyphoto", file=sys.stderr)
+	raise
+import optparse
 import os
 import tempfile, filecmp
 import errno
@@ -41,7 +45,12 @@ def error(options, *args):
 	sys.exit(56)
 
 def read_record(options):
-	records = [line.strip() for line in open(options.record)]
+	try:
+		records = [line.strip() for line in open(options.record)]
+	except IOError as ex:
+		if ex.errno != errno.ENOENT:
+			raise
+		records = []
 	if options.verbose:
 		print(len(records), "records in", options.record)
 	return records
