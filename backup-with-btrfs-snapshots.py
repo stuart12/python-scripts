@@ -173,7 +173,7 @@ def main():
 		sys.exit("good suffix cannot be empty")
 
 	if options.config:
-		ok = copy_with_config(options.config)
+		ok = copy_with_config(options)
 	elif options.directories and len(options.args) >= 2:
 		ok = True
 		for src in options.args[0:-1]:
