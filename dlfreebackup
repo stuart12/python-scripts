@@ -31,6 +31,9 @@ import pipes
 def quote(s):
 	return pipes.quote(s) # need python 3.3 for shlex.quote
 
+def quote_list(l):
+	return " ".join(quote(c) for c in l)
+
 def label():
 	with open("/dev/urandom", "rb") as random:
 		r = ord(random.read(1))
@@ -56,7 +59,7 @@ def getoutput(args, options):
 		status = subprocess.Popen(args, stdin=devnull, stdout=out, stderr=err, close_fds=True).wait()
 		if status != 0:
 			err.seek(0)
-			r = "[" + " ".join(quote(c) for c in args)  + "] failed " + str(status) + ": " + err.read().decode().rstrip()
+			r = "[" + quote_list(args) + "] failed " + str(status) + ": " + err.read().decode().rstrip()
 			check(r)
 		err.close()
 		out.seek(0)
@@ -68,7 +71,7 @@ def run(args, options):
 
 def print_cmd(cmd, options):
 	if options.verbose:
-		print(" ".join(quote(c) for c in cmd))
+		print(quote_list(cmd))
 
 def run_input(args, input, options):
 	print_cmd(args, options)
@@ -76,7 +79,7 @@ def run_input(args, input, options):
 	status = subprocess.Popen(args, stdin=input, stdout=err, stderr=subprocess.STDOUT, close_fds=True).wait()
 	if status != 0:
 		err.seek(0)
-		r = "[" + " ".join(quote(c) for c in args) + "] failed " + str(status) + ": " + err.read().decode().rstrip()
+		r = "[" + quote_list(args) + "] failed " + str(status) + ": " + err.read().decode().rstrip()
 		check(r)
 	err.close()
 
@@ -387,7 +390,7 @@ def do_save(section_name, config, job, options):
 			self.tee = subprocess.Popen(self.command, stdin=job.crypt_output(), stdout=subprocess.PIPE)
 		def wait(self):
 			if self.tee.wait() != 0:
-				print("%s: save command: %s: failed %d" % (options.myname, " ".join(quote(self.command)), self.tee.returncode), file=sys.stderr)
+				print("%s: save command: %s: failed %d" % (options.myname, quote_list(self.command), self.tee.returncode), file=sys.stderr)
 				return 1
 			if len(self.suffix) > 0:
 				with open(self.tmp_file_name, "rb") as f:
