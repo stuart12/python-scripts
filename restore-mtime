@@ -20,6 +20,7 @@ import hashlib
 import pathlib
 import collections
 import itertools
+import signal
 
 def verbose(options, *args):
     if options.verbose:
@@ -50,7 +51,9 @@ def scan(path, options):
 def run(options):
     files = itertools.chain.from_iterable([scan(pathlib.Path(d), options) for d in options.directories])
     #print(files)
-    r = subprocess.call(options.command)
+    p = subprocess.Popen(options.command)
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
+    r = p.wait()
     for f in files:
         if f.path.exists() and not f.path.is_symlink() and f.path.is_file():
             stat = f.path.stat()
