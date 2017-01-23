@@ -515,7 +515,7 @@ def get_path(ptype, opts, options):
 	return dest
 
 def get_destination(opts, options):
-	return get_path('destination', opts, options)
+	return os.path.expanduser(get_path('destination', opts, options))
 
 
 def get_tasks(config_file, outdirs, options, check_destination=False):
@@ -535,7 +535,7 @@ def post_process(outdirs, options):
 	for target, config in outdirs:
 		prog = config.get('post_process', None)
 		if prog:
-			dest = get_path('post', config, options)
+			dest = os.path.expanduser(get_path('post', config, options))
 			try:
 				os.mkdir(dest)
 			except FileExistsError:
