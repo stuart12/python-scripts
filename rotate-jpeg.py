@@ -60,6 +60,10 @@ def error(*message):
 	print(*message, file=sys.stderr)
 	sys.exit(6)
 
+def verbose(options, *message):
+	if options.verbose:
+		print(*message, file=sys.stderr)
+
 def update_size(dest, image):
 	# http://stackoverflow.com/questions/400788/resize-image-in-python-without-losing-exif-data
 	dest["Exif.Photo.PixelXDimension"] = image.size[0]
@@ -81,6 +85,7 @@ def copy_exif_data(image, source_path, dest_path, options):
 	dest.write()
 
 def shrink(inputfile, options):
+	verbose(options, "shrink", inputfile)
 	im = Image.open(inputfile)
 	iw = im.size[0]
 	ih = im.size[1]
@@ -101,7 +106,7 @@ def shrink(inputfile, options):
 			os.remove(options.output)
 			os.symlink(inputfile, options.output)
 
-def get_required_exif_data(exif):
+def get_required_exif_data(options, exif):
 	# https://git.gnome.org/browse/gexiv2/tree/GExiv2.py
 	cam_maker = exif.get('Exif.Image.Make')
 	if cam_maker is None:
@@ -123,6 +128,7 @@ def get_required_exif_data(exif):
 		return None
 
 	PhotoData = collections.namedtuple('PhotoData', ['camera_maker', 'camera_model', 'focal_length', 'aperture', 'subject_distance'])
+	verbose(options, "have exif data")
 	return PhotoData(
 		camera_maker=cam_maker,#.encode('ascii','ignore'),
 		camera_model=camera_model,#.encode('ascii','ignore'),
@@ -142,7 +148,7 @@ def get_size(iw, ih, width, height):
 
 def undistort(inputfile, options):
 	exif = GExiv2.Metadata(inputfile)
-	required_info = get_required_exif_data(exif)
+	required_info = get_required_exif_data(options, exif)
 	if required_info is None:
 		return shrink(inputfile, options)
 
@@ -156,6 +162,7 @@ def undistort(inputfile, options):
 	owidth = options.width
 	oheight = options.height
 	if ih > iw:
+		verbose(options, "swap", owidth, oheight)
 		owidth, oheight = oheight, owidth
 	width = owidth if owidth else iw
 	height = oheight if oheight else ih
@@ -169,13 +176,14 @@ def undistort(inputfile, options):
 	sz = get_size(iw, ih, width, height)
 	if sz:
 		shrunk = cv2.resize(imUndistorted, sz, interpolation=cv2.INTER_AREA)
-		#print("ratio is (%d %d) != (%d %d)" % (shrunk.shape[1], shrunk.shape[0], iw, ih))
+		verbose(options, "ratio is (%d %d) != (%d %d)" % (shrunk.shape[1], shrunk.shape[0], iw, ih))
 		if shrunk.shape[0] != height and shrunk.shape[1] != height and shrunk.shape[0] != width and  shrunk.shape[1] != width:
 			error("new size is wrong (%d %d) != (%d %d)" % (shrunk.shape[1], shrunk.shape[0], iw, ih))
 		if abs(shrunk.shape[0] / float(shrunk.shape[1]) - im.shape[0] / float(im.shape[1])) > options.ratio_change:
 			error("ratio changed (%d %d) != (%d %d)" % (shrunk.shape[1], shrunk.shape[0], im.shape[1], im.shape[0]))
 	else:
 		shrunk = imUndistorted
+		verbose(options, "using imUndistorted")
 	cv2.imwrite(options.output, shrunk, (cv2.IMWRITE_JPEG_QUALITY, options.quality))
 
 	exif['Exif.Photo.PixelXDimension'] = str(width)
