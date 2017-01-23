@@ -1,4 +1,4 @@
-#!/usr/bin/python -3
+#!/usr/bin/python2.6 -3
 # canon_download Copyright (C) 2012 Stuart Pook (http://www.pook.it/)
 # Download from a Canon or GoPro camera the photos that have not already been seen.
 # https://github.com/alexdu/piggyphoto/blob/master/piggyphoto
@@ -158,7 +158,9 @@ def download(jobs, camera, options):
 
 def run(options, args):
 	seen = frozenset(read_record(options))
+	verbose(options, "about to open camera")
 	camera = piggyphoto.camera()
+	verbose(options, "camera open")
 	verbose(options, camera.abilities)
 	found = []
 	jobs = look_for_dcim(camera, "/", seen, found, options)
