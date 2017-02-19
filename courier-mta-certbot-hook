@@ -24,6 +24,13 @@
 # https://community.letsencrypt.org/t/configure-courier-imap/3620/4
 # http://www.mad-hacking.net/documentation/linux/applications/mail/using-ssl-tls-postfix-courier.xml
 # http://www.shellhacks.com/en/HowTo-Check-SSL-Certificate-Expiration-Date-from-the-Linux-Shell
+#
+# until you have https://github.com/certbot/certbot/issues/3394 you will need to edit your crontab or
+# /etc/systemd/system/certbot.service.d/something.conf to explicitly call this hook on each renewal.
+#    [Service]
+#    ExecStart=
+#    ExecStart=/usr/bin/certbot -q --renew-hook /opt/github.com/stuart12/python-scripts/courier-mta-certbot-hook renew
+# Reload systemd and heck with "systemctl show certbot.service | grep ExecStart="
 
 import os
 import syslog
