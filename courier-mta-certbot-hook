@@ -13,18 +13,20 @@
 # License along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 # vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4
-# check with  openssl s_client -connect localhost:587 -starttls smtp < /dev/null
+# check with openssl s_client -connect localhost:587 -starttls smtp < /dev/null
 # openssl s_client -connect localhost:143 -starttls imap < /dev/null
-# openssl s_client -connect localhost:143 -starttls imap < /dev/null  | openssl x509 -noout -dates
-# openssl s_client -connect localhost:587 -starttls smtp < /dev/null  | openssl x509 -noout -dates
+# openssl s_client -connect localhost:143 -starttls imap < /dev/null | openssl x509 -noout -dates
+# openssl s_client -connect localhost:587 -starttls smtp < /dev/null | openssl x509 -noout -dates
 #
 # ideas from:
 # https://github.com/szepeviktor/debian-server-tools/blob/master/security/cert-update.sh
 # https://github.com/szepeviktor/debian-server-tools/blob/master/mail/courier-mta-smarthost.sh
 # https://community.letsencrypt.org/t/configure-courier-imap/3620/4
 # http://www.mad-hacking.net/documentation/linux/applications/mail/using-ssl-tls-postfix-courier.xml
+# http://www.shellhacks.com/en/HowTo-Check-SSL-Certificate-Expiration-Date-from-the-Linux-Shell
 
 import os
+import syslog
 import sys
 import argparse
 import subprocess
@@ -32,12 +34,15 @@ import shlex
 import shutil
 import pwd
 
+def myname():
+    return os.path.basename(sys.argv[0])
+
 def verbose(options, *args):
     if options.verbose:
-        print(os.path.basename(sys.argv[0]) + ":", *args, file=sys.stderr)
+        print(myname() + ":", *args, file=sys.stderr)
 
 def warn(*opts):
-    print(os.path.basename(sys.argv[0]) + ":", *opts, file=sys.stderr)
+    print(myname() + ":", *opts, file=sys.stderr)
 
 def fatal(*opts):
     warn(*opts)
@@ -77,12 +82,16 @@ def update_certificates(options):
     run(options.mkdhparams, env={"DH_BITS": str(options.dh_bits)}, options=options)
     for s in [ "courier-mta", "courier-mta-ssl", "courier-imap", "courier-imap-ssl" ]:
         run(options.service, "restart", s, options=options)
+    if not options.no_syslog:
+        syslog.openlog(ident=myname(), facility=syslog.LOG_DAEMON)
+        syslog.syslog("updated " + options.output + " from " + options.key_directory + " and restarted services")
 
 def main():
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
     parser.add_argument("-v", "--verbose", action="count", default=0, help="increase output verbosity")
-    parser.add_argument("-n", '--dry_run', '--dryrun', default=False, action='store_true', help='dryrun')
+    parser.add_argument("-n", '--dry_run', '--dryrun', default=False, action='store_true', help='dry run')
+    parser.add_argument("-s", '--no_syslog', default=False, action='store_true', help='do not syslog')
     parser.add_argument("-k", '--key_directory', default=os.environ.get('RENEWED_LINEAGE', None), help='directory with keys created by certbot')
     parser.add_argument('--mkdhparams', default='/usr/sbin/mkdhparams', help='command to recreate /etc/courier/dhparams.pem')
     parser.add_argument('--service', default='systemctl', help='command the restarts services')
