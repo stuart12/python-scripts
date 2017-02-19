@@ -1,0 +1,101 @@
+#!/usr/bin/python3
+# Hook for Let's Encrypt (letsencrypt) certbot renewal to recreate the SSL certificates
+# for courier-mta (http://www.courier-mta.org/) and restart the servers.
+# Copyright (C) 2017 Stuart Pook (http://www.pook.it)
+#
+# This program is free software: you can redistribute it and/or modify it under
+# the terms of the GNU General Public License as published by the Free Software
+# Foundation, either version 3 of the License, or (at your option) any later
+# version.  This program is distributed in the hope that it will be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+# or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
+# more details.  You should have received a copy of the GNU General Public
+# License along with this program.  If not, see <http://www.gnu.org/licenses/>.
+#
+# vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4
+# check with  openssl s_client -connect localhost:587 -starttls smtp < /dev/null
+# openssl s_client -connect localhost:143 -starttls imap < /dev/null
+# openssl s_client -connect localhost:143 -starttls imap < /dev/null  | openssl x509 -noout -dates
+# openssl s_client -connect localhost:587 -starttls smtp < /dev/null  | openssl x509 -noout -dates
+#
+# ideas from:
+# https://github.com/szepeviktor/debian-server-tools/blob/master/security/cert-update.sh
+# https://github.com/szepeviktor/debian-server-tools/blob/master/mail/courier-mta-smarthost.sh
+# https://community.letsencrypt.org/t/configure-courier-imap/3620/4
+# http://www.mad-hacking.net/documentation/linux/applications/mail/using-ssl-tls-postfix-courier.xml
+
+import os
+import sys
+import argparse
+import subprocess
+import shlex
+import shutil
+import pwd
+
+def verbose(options, *args):
+    if options.verbose:
+        print(os.path.basename(sys.argv[0]) + ":", *args, file=sys.stderr)
+
+def warn(*opts):
+    print(os.path.basename(sys.argv[0]) + ":", *opts, file=sys.stderr)
+
+def fatal(*opts):
+    warn(*opts)
+    sys.exit(7)
+
+def run(*cmd, options=None, env={}):
+    mess = "run:"
+    command = " ".join(shlex.quote(c) for c in cmd)
+    if env != {}:
+        verbose(options, mess, " ".join(k + "=" + v for k, v in env.items()), command)
+    else:
+        verbose(options, mess, command)
+    output = None if options.verbose else subprocess.DEVNULL
+
+    new_env = os.environ.copy()
+    new_env.update(env)
+    if not options.dry_run:
+        subprocess.check_call(cmd, stdout=output, env=new_env)
+
+def ropen(options, fname):
+    verbose(options, "reading", fname)
+    return open(fname, "rb")
+
+def update_certificates(options):
+    owner = pwd.getpwnam(options.owner).pw_uid
+    tmp = options.output + options.tmp_stem
+    with ropen(options, os.path.join(options.key_directory, "privkey.pem")) as privkey:
+        with ropen(options, os.path.join(options.key_directory, "fullchain.pem")) as fullchain:
+            with os.fdopen(os.open(tmp, os.O_TRUNC | os.O_WRONLY | os.O_CREAT, 0o600), 'wb') as handle:
+                verbose(options, "chown", owner, tmp)
+                os.fchown(handle.fileno(), owner, -1)
+                shutil.copyfileobj(privkey, handle)
+                shutil.copyfileobj(fullchain, handle)
+    verbose(options, "mv", tmp, options.output)
+    if not options.dry_run:
+        os.rename(tmp, options.output)
+    run(options.mkdhparams, env={"DH_BITS": str(options.dh_bits)}, options=options)
+    for s in [ "courier-mta", "courier-mta-ssl", "courier-imap", "courier-imap-ssl" ]:
+        run(options.service, "restart", s, options=options)
+
+def main():
+    parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+
+    parser.add_argument("-v", "--verbose", action="count", default=0, help="increase output verbosity")
+    parser.add_argument("-n", '--dry_run', '--dryrun', default=False, action='store_true', help='dryrun')
+    parser.add_argument("-k", '--key_directory', default=os.environ.get('RENEWED_LINEAGE', None), help='directory with keys created by certbot')
+    parser.add_argument('--mkdhparams', default='/usr/sbin/mkdhparams', help='command to recreate /etc/courier/dhparams.pem')
+    parser.add_argument('--service', default='systemctl', help='command the restarts services')
+    parser.add_argument('--owner', default='daemon', help='certificate file owner')
+    parser.add_argument("-o", '--output', default='/etc/courier/letsencrypt.pem', help='cert file read by courier-mta (imapd-ssl & esmppd)')
+    parser.add_argument("-T", '--tmp_stem', default='#', help='stem for temporary file')
+    parser.add_argument("-b", '--dh_bits', default=2048, type=int, help='bits for dhparams')
+
+    options = parser.parse_args()
+    if not options.key_directory:
+        fatal("must supply key_directory via $RENEWED_LINEAGE or command line")
+
+    update_certificates(options)
+
+if __name__ == "__main__":
+    main()
