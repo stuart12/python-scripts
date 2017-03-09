@@ -89,7 +89,7 @@ def main():
     parser.add_argument('-a', "--add", action="store_true", help="add podcast urls to list")
     parser.add_argument("--loop", action="store_true", help="play all podcasts")
 
-    parser.add_argument('urls', nargs=argparse.REMAINDER, help='urls to (permanently) add to the play list')
+    parser.add_argument('urls', nargs=argparse.REMAINDER, help='feeds to play')
 
     options = parser.parse_args()
     podcasts = os.path.join(options.config, "podcasts")
