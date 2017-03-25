@@ -1,4 +1,4 @@
-#!/usr/bin/python2.6 -3
+#!/usr/bin/python2 -3
 # canon_download Copyright (C) 2012,2016 Stuart Pook (http://www.pook.it/)
 # Download from a Canon or GoPro camera the photos that have not already been seen.
 # https://github.com/alexdu/piggyphoto/blob/master/piggyphoto
