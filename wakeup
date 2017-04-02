@@ -193,11 +193,11 @@ def main():
     parser.disable_interspersed_args()
     
     parser.add_option("-v", "--verbose", action="store_true", help="verbose")
-    parser.add_option("-t", "--test", action="store_true", help="test mode")
+    parser.add_option("-t", "--test", "--set", action="store_true", help="set alarm")
     parser.add_option("-s", "--no_syslog", action="store_true", help="no syslog")
     parser.add_option("--local", action="store_true", help="play music locally")
     parser.add_option("--lockfile", default=def_lock, metavar="FILENAME", help="lock file for single execution [%default]")
-    parser.add_option("--remote", metavar="HOST", default="freerunner", help="remote mahine name [%default]")
+    parser.add_option("--remote", metavar="HOST", default="freerunner", help="remote machine name [%default]")
     parser.add_option("--remote_command", metavar="COMMAND", default="bin/alarm-slave", help="command on remote machine [%default]")
     parser.add_option("--ssh_option", metavar="OPTIONS", default="BatchMode=yes", help="option of ssh [%default]")
     parser.add_option("-w", "--workday", action="store_true", help="pretend is a workday")
