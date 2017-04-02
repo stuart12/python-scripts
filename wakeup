@@ -1,0 +1,230 @@
+#!/usr/bin/python3
+# wakup Copyright (c) 2017 Stuart Pook (http://www.pook.it/)
+# set noexpandtab copyindent preserveindent softtabstop=0 shiftwidth=4 tabstop=4
+# This program is free software: you can redistribute it and/or modify it under
+# the terms of the GNU General Public License as published by the Free Software
+# Foundation, either version 3 of the License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+# FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+import optparse
+import os
+import sys
+import time
+import datetime
+import subprocess
+import syslog
+import pwd
+import fcntl
+
+class HolidayError(RuntimeError):
+    def __init__(self, arg):
+        self.args = arg
+
+class CronDead(RuntimeError):
+    def __init__(self, arg):
+        self.args = arg
+
+class ClockFailed(RuntimeError):
+    def __init__(self, arg):
+        self.args = arg
+    
+def myname():
+    return os.path.basename(sys.argv[0])
+
+def fatal(*args):
+    print(myname() + ": FATAL:", *args, file=sys.stderr)
+    sys.exit(5)
+
+def verbose(options, *args):
+    if options.verbose:
+        print(myname() + ":", *args, file=sys.stderr)
+    
+def read_holidays(options):
+    holidays = []
+    with open(os.path.join(options.lib, options.holidays)) as data:
+        lineno = 0
+        for line in data:
+            lineno += 1
+            comment = line.find("#")
+            rline = line if comment == -1 else line[:comment]
+            fields = rline.split()
+            if len(fields) == 2:
+                holidays.append([int(fields[0]), int(fields[1])])
+            elif len(fields) == 3:
+                holidays.append([int(fields[0]), int(fields[1]), int(fields[2])])
+            elif len(fields) != 0:
+                raise HolidayError(["bad line " + str(lineno )+ " in holidays: " + rline.rstrip()])
+    return holidays
+
+def is_workday(add_hours, options):
+    holidays = read_holidays(options)
+    now = datetime.datetime.now()
+    now = now + datetime.timedelta(hours=add_hours)
+    verbose(options, "add_hours", add_hours, "now", now)
+    if now.weekday() >= 5:
+        return False
+    for i in holidays:
+        if i[0] == now.day and i[1] == now.month and (len(i) == 2 or i[2] == now.year):
+            verbose(options, "not workday as today is", i)
+            return False
+    return True
+
+def check_modified(options):
+    age= time.time() - os.path.getmtime(options.cronlog)
+    if age > options.cronage * 60:
+        raise CronDead(["%s too old %f > %d minutes" % (options.cronlog, age / 60, options.cronage)])
+        
+def run(cmd, options, **kargs):
+    if options.verbose:
+        print(" ".join(cmd))
+    return subprocess.call(cmd, **kargs) == 0
+        
+def play_alsa(musicfile, testing, options, once=False):
+    music = os.path.join(options.lib, musicfile)
+    devnull = open("/dev/null", "w")
+    stderr = None if testing else devnull
+    stdout = devnull
+    dev = options.sound_card
+    amixer = ["amixer", "-q", "-D", dev, "set"]
+    volume = amixer + [options.mixer]
+    play = ["alsaplayer", "--config", "/dev/null", "--device", dev, '--quiet', "--interface", "text", "--nosave", music]
+    if not run(amixer + ["Mic", "0"], options) and testing:
+        return False
+    if not run(amixer + ['Auto Gain Control', "off"], options) and testing:
+        return False
+    if not once:
+        if not run(volume + ["20%"], options) and testing:
+            return False
+        if not run(play, options, stdout=stdout, stderr=stderr):
+            return False
+    if not run(volume + ["100%"], options, stderr=stderr) and testing:
+        return False
+    if not run(play, options, stdout=stdout, stderr=stderr):
+        return False
+    return True
+        
+def play(music, testing, options, **kargs):
+    return play_alsa(music, testing, options, **kargs)
+    
+def clock(switch_on, options):
+    cmd = [options.clock_command, options.clock_on if switch_on else options.clock_off]
+    if options.verbose:
+        print(" ".join(cmd))
+    return subprocess.Popen(cmd, env={"PATH": options.path})
+        
+def tester(options):
+    try:
+        check_modified(options)
+        workday = is_workday(options.hour_shift, options)
+        if options.local:
+            with open(os.path.join(options.lib, options.alarm_file), "rb") as alarm_file:
+                size = 1000
+                alarm_file.read(size)[size - 1]
+        verbose(options, "workday", workday)
+    except:
+        if options.local:
+            play(options.error_file, False, options, once=True)
+        raise
+        
+    if workday or options.workday:
+        if options.local:
+            if not play(options.test_file, True, options):
+                fatal("failed to play test sound")
+        else:
+            run(["ssh", "-n", "-o", options.ssh_option, options.remote, options.remote_command, "--activate"], options)
+        
+    if clock(False, options).wait() != 0:
+        raise ClockFailed(["failed to switch the clock off"])
+        
+    return True
+    
+def wakeup(options):
+    got_exception = None
+    if options.workday:
+        workday = True
+    else:
+        try:
+            workday = is_workday(0, options)
+        except Exception as ex:
+            got_exception = ex
+            workday = True
+        else:
+            if options.verbose:
+                print("workday", workday)
+
+    do_wakeup = got_exception or workday
+
+    if do_wakeup:
+        try:
+            clocked = clock(True, options)
+        except Exception as ex:
+            got_exception = ex
+            clocked = None
+        if options.local:
+            play(options.alarm_file, False, options)
+        if clocked and clocked.wait() != 0:
+            raise ClockFailed(["failed to switch the clock on"])
+    
+
+    if got_exception is not None:
+        raise got_exception
+
+    if not options.no_syslog:
+        syslog.openlog(ident=myname(), facility=syslog.LOG_DAEMON)
+        syslog.syslog("workday: " + str(workday))
+    return True
+
+def lock(options):
+    lockname = options.lockfile
+    lockfile = os.open(lockname, os.O_CREAT | os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW, 0o600)
+    verbose(options, "about to lock", lockname)
+    fcntl.flock(lockfile, fcntl.LOCK_EX | fcntl.LOCK_NB)
+#   sys.exit("%s: failed to lock %s" % (os.file.basename(sys.argv[0]), lockname)
+    verbose(options, "locked", lockname)
+
+def main():        
+    def_lock = os.path.join(os.environ.get("TMP", "/tmp"), pwd.getpwuid(os.getuid())[0] + "-" + myname() + ".lck")
+    parser = optparse.OptionParser(usage="%prog [--help] [options]")
+    parser.disable_interspersed_args()
+    
+    parser.add_option("-v", "--verbose", action="store_true", help="verbose")
+    parser.add_option("-t", "--test", action="store_true", help="test mode")
+    parser.add_option("-s", "--no_syslog", action="store_true", help="no syslog")
+    parser.add_option("--local", action="store_true", help="play music locally")
+    parser.add_option("--lockfile", default=def_lock, metavar="FILENAME", help="lock file for single execution [%default]")
+    parser.add_option("--remote", metavar="HOST", default="freerunner", help="remote mahine name [%default]")
+    parser.add_option("--remote_command", metavar="COMMAND", default="bin/alarm-slave", help="command on remote machine [%default]")
+    parser.add_option("--ssh_option", metavar="OPTIONS", default="BatchMode=yes", help="option of ssh [%default]")
+    parser.add_option("-w", "--workday", action="store_true", help="pretend is a workday")
+    parser.add_option("--lib", metavar="directory", default=os.path.join(os.path.dirname(__file__), '..', 'lib', 'wakeup'), help="directory for files [%default]")
+    parser.add_option("--cronlog", metavar="filename", default="/var/log/cron.log", help="file that must have been recently modified [%default]")
+    parser.add_option("--cronage", metavar="minutes", type='int', default=61, help="maximum age [%default]")
+    parser.add_option("--holidays", metavar="filename", default="holidays", help="list of holidays [%default]")
+    parser.add_option("--hour_shift", metavar="hours", default=12, type='int', help="pretend later when testing [%default]")
+    parser.add_option("--test_file", metavar="soundfile", default="ok.wav", help="file to play when testing [%default]")
+    parser.add_option("-a", "--alarm_file", metavar="soundfile", default="alarm.mp3", help="file to play [%default]")
+    parser.add_option("--error_file", metavar="soundfile", default="error.wav", help="file to play [%default]")
+    parser.add_option("--clock_command", metavar="command", default="led-bedroom", help="command to run to turn clock on [%default]")
+    parser.add_option("--clock_on", metavar="argument", default="on", help="clock on argument [%default]")
+    parser.add_option("--clock_off", metavar="argument", default="off", help="clock off argument [%default]")
+    parser.add_option("--sound_card", default="hw:Set", help="sound card [%default]")
+    parser.add_option("--path",
+        default="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games", help="PATH for subprocesses [%default]")
+    parser.add_option("--mixer", default="Headphone", help="mixer for volume control [%default]")
+    (options, args) = parser.parse_args()
+    
+    lock(options)
+    if options.test:
+        r = tester(options)
+    else:
+        r = wakeup(options)
+    os.remove(options.lockfile)
+    sys.exit(0 if r else 7)
+
+if __name__ == '__main__':
+    main()
