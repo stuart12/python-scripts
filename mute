@@ -1,0 +1,251 @@
+#!/usr/bin/python
+# mute Copyright (c) 2017 Stuart Pook (http://www.pook.it/)
+# stop all playing audio
+# set noexpandtab copyindent preserveindent softtabstop=0 shiftwidth=4 tabstop=4
+# This program is free software: you can redistribute it and/or modify it under
+# the terms of the GNU General Public License as published by the Free Software
+# Foundation, either version 3 of the License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+# FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+from __future__ import print_function
+
+import os,  string,  stat,  signal,  subprocess,  sys,  time
+import os.path
+import optparse,  socket
+import getpass
+import re
+import functools
+
+proc = "/proc"
+
+parser = optparse.OptionParser()
+parser.add_option("-n", "--next", action="store_true", dest="next", default=False, help="next track")
+parser.add_option("-v", "--verbose", action="store_true", default=False, help="verbose")
+parser.add_option("-p", "--previous", action="store_true", dest="previous", default=False, help="previous track")
+parser.add_option( "--on", action="store_true", dest="led_on", default=False, help="switch led on")
+(options, args) = parser.parse_args()
+
+def myname():
+	return os.path.basename(sys.argv[0])
+
+def verbose(*args):
+	if options.verbose:
+		print(myname() + ":", os.getpid(), time.strftime("%H:%M:%S", time.localtime()), *args, file=sys.stderr)
+
+def call(*args):
+	verbose("popen", " ".join(*args))
+	subprocess.Popen(*args)
+
+def get_int(s):
+	try:
+		return int(s)
+	except ValueError:
+		return -1
+	
+uid = os.getuid()
+my_pid = os.getpid()
+amarok = None
+
+def is_audio(target):
+	return target.startswith("/dev/snd/pcmC") and target.endswith("0p") or target == "/dev/dsp"
+
+def scan(method):
+	for name in os.listdir(proc):
+		pid = get_int(name)
+		if pid > 0 and pid != my_pid:
+			proc_dir = os.path.join(proc,  name)
+			try:
+				proc_dir_stat = os.stat(proc_dir)
+			except OSError:
+				continue
+			if proc_dir_stat[stat.ST_UID] == uid:
+				fd_dir = os.path.join(proc_dir,  "fd")
+				try:
+					fd_stat = os.stat(fd_dir)
+				except OSError:
+					continue
+				if fd_stat[stat.ST_UID] == uid:
+					try:
+						fds = os.listdir(fd_dir)
+					except OSError:
+						continue
+					for fd in fds:
+						fd_path = os.path.join(fd_dir,  fd)
+						try:
+							target = os.readlink(fd_path)
+						except OSError:
+							continue
+						if is_audio(target):
+							try:
+								exe = os.readlink(os.path.join(proc_dir,  "exe"))
+							except OSError:
+								break
+							method(pid,  os.path.basename(exe),  fd_path)
+							break
+							
+def remote_killer(exe, fd_path):
+	if clementine(exe, "stop"):
+		pass
+	elif amarok(exe, "stop"):
+		pass
+	else:
+		return False
+	delay = 0.2
+	total = 0
+	verbose("remote_killer ok, waiting", delay)
+	try:
+		while is_audio(os.readlink(fd_path)) if fd_path else pulseaudio_client():
+			time.sleep(delay)
+			total += delay
+			if total > 14:
+				verbose(exe, "stop timeout after", total, "seconds")
+				return False
+	except OSError, e:
+		verbose(exe, "vanished, stop took", total, "seconds with", e)
+		return True
+	verbose(exe, "stop took", total, "seconds")
+	return True
+
+def killer(pid,  exe, fd_path):
+	if remote_killer(exe, fd_path):
+		return
+	else:
+		count = 0
+		limit = 100
+		try:
+			os.kill(pid, signal.SIGTERM)
+			while count < limit:
+				os.kill(pid, 0)
+				time.sleep(2.0 / limit)
+				count += 1
+		except OSError:
+			verbose("kill",  exe,  pid,  count)
+		else:
+			verbose("failed to kill",  exe,  pid,  count)
+			
+def next(pid,  exe, fd_path):
+	if amarok(exe, "next"):
+		pass
+	elif clementine(exe, "next"):
+		pass
+	elif exe == "vlc":
+		vlc("next")
+		
+def previous(pid,  exe, fd_path):
+	if amarok(exe, "previous"):
+		pass
+	elif clementine(exe, "previous"):
+		pass
+	elif exe == "vlc":
+		vlc("prev")
+
+def remote(who, what):
+	command = [who,  "--" + what]
+	verbose("run",  command)
+	subprocess.check_call(command)
+
+def copy_dict(source_dict, diffs):
+    """Returns a copy of source_dict, updated with the new key-value
+       pairs in diffs."""
+    result=dict(source_dict) # Shallow copy, see addendum below
+    result.update(diffs)
+    return result
+
+def pulseaudio_client():
+	cmd = "pactl"
+	clients = subprocess.Popen([cmd, "list", "clients"], env=copy_dict(os.environ, {'DISPLAY': ''}), stdout=subprocess.PIPE)
+	binary = None
+	pid = None
+	native = False
+	try:
+		r = []
+		for line in clients.stdout:
+			#verbose(line.strip())
+			if line.startswith("Client #") or 'application.name = "libphonon"' in line or 'application.name = "Clementine device finder"' in line:
+				binary = pid = native = False
+			elif "Driver: protocol-native.c" in line:
+				native = True
+			elif "application.process.binary" in line:
+				binary = re.search('"(.+?)"', line).group(1)
+			elif "application.process.id" in line:
+				pid = int(re.search('"(.+?)"', line).group(1))
+			if binary and pid and native and pid != clients.pid:
+				r.append([binary, pid])
+				native = False
+		verbose("pulseaudio_client", "found", r)
+		return r
+	finally:
+		if clients.wait() != 0:
+			verbose("pulseaudio_client", cmd, "failed")
+			return None
+
+def scan_pulseaudio(r, method):
+	verbose("scan_pulseaudio")
+	if r == []:
+		verbose("scan_pulseaudio", "no clients")
+	else:
+		for client in r:
+			exe, pid  = client
+			verbose("scan_pulseaudio", "pid=", pid, "exe", exe)
+			method(pid, exe, None)
+
+def clementine(exe, command):
+	if exe == "clementine":
+		remote("clementine", command)
+		return True
+	return False
+
+def amarok(exe, command):
+	if exe.endswith("amarok"):
+		remote("amarok", command)
+		return True
+	return False
+
+def vlc(message):
+	verbose( "sending vlc", message)
+	s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+	s.connect(("localhost", 26982))
+	s.settimeout(14)
+
+	while s.recv(1000).count('>') == 0:
+		pass
+
+	s.send(message + '\n')
+	verbose( "got", s.recv(1000))
+	s.send('logout\n')
+	while True:
+		mess = s.recv(1000)
+		if not mess:
+			break
+		verbose( "got", mess)
+	
+	s.close()
+	
+procs = []
+if options.led_on:
+	procs.append(subprocess.Popen(["led-bedroom", "on"]))
+	call(["telephone-control", "--ring"])
+	call(["alarm-stop"])
+	#procs.append(subprocess.Popen(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=3", "-n", "freerunner", "bin/alarm-slave", "--stop"]))
+
+r = pulseaudio_client()
+scanner = scan if r is None else functools.partial(scan_pulseaudio, r)
+
+if options.next:
+	scanner(next)
+elif options.previous:
+	scanner(previous)
+else:
+	scanner(killer)
+
+verbose("waiting", len(procs))
+
+for proc in procs:
+	proc.wait()
+
+verbose("done")
