@@ -1,0 +1,53 @@
+#!/usr/bin/python3
+# radio-browser Copyright (c) 2017 Stuart Pook (http://www.pook.it/)
+# lookup a radio stream on www.radio-browser.info and play it
+# set noexpandtab copyindent preserveindent softtabstop=0 shiftwidth=4 tabstop=4
+# This program is free software: you can redistribute it and/or modify it under
+# the terms of the GNU General Public License as published by the Free Software
+# Foundation, either version 3 of the License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+# FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+import os
+import argparse
+import sys
+import subprocess
+import shlex
+import urllib.parse
+
+def myname():
+    return os.path.basename(sys.argv[0])
+
+def verbose(options, level, *message):
+    if options.verbosity >= level:
+        print(myname() + ":", *message, file=sys.stderr)
+
+def main():
+    parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+            description="play radio stations found on radio-browser.info")
+
+    parser.add_argument("-v", "--verbosity", action="count", default=0, help="increase output verbosity")
+    parser.add_argument("--player", metavar="COMMAND", default="vlc", help="command to play a url")
+    parser.add_argument("--player_option", metavar="OPTION", default="--play-and-exit", help="option for command to play a url")
+    parser.add_argument("--method", default="bynameexact", help="search method")
+    parser.add_argument("--scheme", metavar="SCHEME", default="https", help="http or https")
+    parser.add_argument("--netloc", metavar="NETLOC", default="www.radio-browser.info", help="host for lookups")
+    parser.add_argument("--path", metavar="PATH", default="/webservice/m3u/stations", help="URL path")
+
+    parser.add_argument('terms', help='search terms', nargs='+')
+    options = parser.parse_args()
+
+    base = options.scheme + "://" + options.netloc + "/" + options.path + "/" + options.method + "/"
+    verbose(options, 2, "base", base)
+    cmd = [options.player] + [options.player_option] if [options.player_option] else []
+    cmd += [base + urllib.parse.quote(t) for t in options.terms]
+    verbose(options, 1, " ".join(shlex.quote(c) for c in cmd))
+    os.execvp(options.player, cmd)
+    sys.exit(myname() + ": failed to exec " + cmd)
+
+if __name__ == "__main__":
+    main()
