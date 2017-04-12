@@ -13,18 +13,23 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 import os
-import argparse
 import sys
+
+def myname():
+    return os.path.basename(sys.argv[0])
+
+import argparse
 import subprocess
 import collections
-import podcastparser
+try:
+    import podcastparser
+except ImportError:
+    print(myname() + ": on debian: apt-get install python3-podcastparser", file=sys.stderr)
+    raise
 import time
 import tempfile
 import datetime
 import urllib.request
-
-def myname():
-    return os.path.basename(sys.argv[0])
 
 def verbose(options, level, *message):
     if options.verbosity >= level:
@@ -72,6 +77,15 @@ def play(playable, played, options):
         if r != 0:
             sys.exit(1)
 
+def get_cache(options):
+    fname = os.path.join(options.cache, "played")
+    mode = "a+"
+    try:
+        return open(fname, mode)
+    except FileNotFoundError:
+        os.makedirs(options.cache, mode=0o700)
+        return open(fname, mode)
+
 def main():
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter,
             description="play the most recent podcast")
@@ -98,7 +112,7 @@ def main():
             for url in options.urls:
                 print(url, file=out)
     else:
-        with open(os.path.join(options.cache, "played"), "r+") as played:
+        with get_cache(options) as played:
             played.seek(0)
             already_played = frozenset(line.strip() for line in played)
             playables = []
