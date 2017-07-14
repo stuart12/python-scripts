@@ -75,7 +75,7 @@ def main(argv):
 	with open(pp3) as dummy:
 		pass
 
-	command = [ "/usr/bin/rawtherapee", "-Y"]
+	command = [ "rawtherapee-cli", "-Y"]
 	command.append("-j%d" % options.quality)
 	if options.pp3:
 		command.extend(["-p", options.pp3])
