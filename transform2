@@ -253,9 +253,9 @@ class ExecutionFactory:
 		return self.Execution(command=cmd, outfile=outfile, infiles=infiles, opts=self.opts, env=self.env)
 
 def execute(source_filenames, target_filename, match, exfactory, options):
-	verbose(options, "run", target_filename, source_filenames)
 	if options.touch:
 		try:
+			verbose(options, "touch", target_filename)
 			os.utime(target_filename)
 			os.close(os.open(target_filename, os.O_WRONLY))
 		except OSError as ex:
@@ -263,7 +263,13 @@ def execute(source_filenames, target_filename, match, exfactory, options):
 				raise
 			os.close(os.open(target_filename, os.O_CREAT | os.O_WRONLY, 0o666))
 		return []
-	return [exfactory.create(match['command'], outfile=target_filename, infiles=source_filenames)]
+	command = match['command']
+	if len(command) == 1 and command[0] == "ln" and len(source_filenames) == 1:
+		verbose(options, "ln", source_filenames[0], target_filename)
+		os.symlink(source_filenames[0], target_filename)
+		return []
+	verbose(options, "run", target_filename, source_filenames)
+	return [exfactory.create(command, outfile=target_filename, infiles=source_filenames)]
 
 def stat_path(fn, options):
 	target_filename = os.path.join(fn)
@@ -477,7 +483,7 @@ def read_include(config_file, options):
 		config = yaml.safe_load(f)
 	for i in config.get("include", []):
 		path = os.path.join(os.path.dirname(config_file), i)
-		verbose(options, "reading config file", path)
+		verbose(options, "reading config file", path, config)
 		c2 = read_include(path, options)
 		config = merge_yaml(config, c2)
 	return config
@@ -503,6 +509,7 @@ class ConfigWrapper:
 
 def read_config(config_file, options):
 	config = ConfigWrapper(read_include(config_file, options), config_file, options)
+	verbose(options, config_file, config.config)
 	return config
 
 def get_path(ptype, opts, options):
