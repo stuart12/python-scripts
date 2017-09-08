@@ -41,7 +41,7 @@ def main():
 		
 	c2.extend(sys.argv[1:])
 	c2.append(root)
-	c2.append("/disks/ws/stuart/compressed_music")
+	c2.append("/disks/internal/stuart/compressed_music")
 	
 	subprocess.check_call(c2, stdin=file_list, preexec_fn=nice)
 
