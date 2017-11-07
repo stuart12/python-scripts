@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-# playnewestpod Copyright (c) 2015 Stuart Pook (http://www.pook.it/)
+# time-shadow Copyright (c) 2017 Stuart Pook (http://www.pook.it/)
 # make a shadow copy respecting the EXIF time order
 # Used to make the sorting order by name of this files in a directory
 # equal the sorting order by Exif Date.
@@ -30,17 +30,20 @@ import errno
 def myname():
     return os.path.basename(sys.argv[0])
 
+def warn(*args):
+    print(*args, file=sys.stderr)
+
 def verbose(options, *args):
     if options.verbosity:
-        print(*args, file=sys.stderr)
+        warn(*args)
 
 def verbose1(options, *args):
     if options.verbosity > 1:
-        print(*args, file=sys.stderr)
+        warn(*args)
 
 def verbose2(options, *args):
     if options.verbosity > 2:
-        print(*args, file=sys.stderr)
+        warn(*args)
 
 def same_prefix(filenames, options):
     if len(filenames[0]) <= options.same_camera:
@@ -58,7 +61,7 @@ def photo_time(fn, options):
             try:
                 timestr = data[options.tag].printable
             except KeyError:
-                verbose2(options, "no",  options.tag, "in", fn)
+                warn(options, "no",  options.tag, "in", fn)
                 return None
             verbose2(options, fn, options.tag, "=", timestr)
             try:
