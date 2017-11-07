@@ -54,13 +54,14 @@ def scan(feedurl, played, options):
     return podcasts
 
 def play(playable, played, options):
+    what = playable.channel + ": " + \
+            playable.title + " " + \
+            datetime.date.fromtimestamp(playable.date).strftime(options.datefmt) + " " + \
+            "(" + os.path.splitext(os.path.basename(playable.feed))[0] + ")"
+    verbose(options, 1, "play:", what)
     with tempfile.NamedTemporaryFile(mode="w", prefix='playnpod', suffix='.m3u8') as tmp:
         print('#EXTM3U8', file=tmp)
-        print('#EXTINF:0,' + playable.channel + ":",
-                playable.title,
-                datetime.date.fromtimestamp(playable.date).strftime(options.datefmt),
-                "(" + os.path.splitext(os.path.basename(playable.feed))[0] + ")",
-                file=tmp)
+        print('#EXTINF:0,' + what, file=tmp)
         print(playable.url, file=tmp)
         tmp.flush()
         cmd = subprocess.Popen([options.player, options.player_option, tmp.name])
