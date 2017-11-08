@@ -86,7 +86,7 @@ def update_certificates(options):
     verbose(options, "mv", tmp, options.output)
     if not options.dry_run:
         os.rename(tmp, options.output)
-    run(options.mkdhparams, env={"DH_BITS": str(options.dh_bits)}, options=options)
+    run(options.mkdhparams, options=options)
     for s in [ "courier-mta", "courier-mta-ssl", "courier-imap", "courier-imap-ssl" ]:
         run(options.service, "restart", s, options=options)
     if not options.no_syslog:
@@ -102,10 +102,9 @@ def main():
     parser.add_argument("-k", '--key_directory', default=os.environ.get('RENEWED_LINEAGE', None), help='directory with keys created by certbot')
     parser.add_argument('--mkdhparams', default='/usr/sbin/mkdhparams', help='command to recreate /etc/courier/dhparams.pem')
     parser.add_argument('--service', default='systemctl', help='command the restarts services')
-    parser.add_argument('--owner', default='daemon', help='certificate file owner')
+    parser.add_argument('--owner', default='courier', help='certificate file owner') # FIXME should copy owner
     parser.add_argument("-o", '--output', default='/etc/courier/letsencrypt.pem', help='cert file read by courier-mta (imapd-ssl & esmppd)')
     parser.add_argument("-T", '--tmp_stem', default='#', help='stem for temporary file')
-    parser.add_argument("-b", '--dh_bits', default=2048, type=int, help='bits for dhparams')
 
     options = parser.parse_args()
     if not options.key_directory:
