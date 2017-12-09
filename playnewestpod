@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+#!/usr/bin/python3 -B
 # playnewestpod Copyright (c) 2015 Stuart Pook (http://www.pook.it/)
 # play the most recent podcast from a feed url
 # set noexpandtab copyindent preserveindent softtabstop=0 shiftwidth=4 tabstop=4
@@ -30,6 +30,7 @@ import time
 import tempfile
 import datetime
 import urllib.request
+import mpd_playurl
 
 def verbose(options, level, *message):
     if options.verbosity >= level:
@@ -54,29 +55,9 @@ def scan(feedurl, played, options):
     return podcasts
 
 def play(playable, played, options):
-    what = playable.channel + ": " + \
-            playable.title + " " + \
-            datetime.date.fromtimestamp(playable.date).strftime(options.datefmt) + " " + \
-            "(" + os.path.splitext(os.path.basename(playable.feed))[0] + ")"
-    verbose(options, 1, "play:", what)
-    with tempfile.NamedTemporaryFile(mode="w", prefix='playnpod', suffix='.m3u8') as tmp:
-        print('#EXTM3U8', file=tmp)
-        print('#EXTINF:0,' + what, file=tmp)
-        print(playable.url, file=tmp)
-        tmp.flush()
-        cmd = subprocess.Popen([options.player, options.player_option, tmp.name])
-        try:
-            r = cmd.wait(options.min_play_time)
-        except subprocess.TimeoutExpired:
-            print(playable.guid, file=played)
-            played.flush()
-            r = cmd.wait()
-        else:
-            if r == 0:
-                print(playable.guid, file=played)
-                played.flush()
-        if r != 0:
-            sys.exit(1)
+    mpd_playurl.playurls([playable.url], verbosity=options.verbosity)
+    print(playable.guid, file=played)
+    played.flush()
 
 def get_cache(options):
     fname = os.path.join(options.cache, "played")
@@ -91,7 +72,7 @@ def main():
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter,
             description="play the most recent podcast")
 
-    parser.add_argument("-v", "--verbosity", action="count", default=0, help="increase output verbosity")
+    parser.add_argument("-v", "--verbosity", "--verbose", action="count", default=0, help="increase output verbosity")
     parser.add_argument("--min_play_time", metavar="SECONDS", type=int, default=9,
             help="minimum to consider a podcast played")
     parser.add_argument("--player", metavar="COMMAND", default="videolan", help="command to play a url")
