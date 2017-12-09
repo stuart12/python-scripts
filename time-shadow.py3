@@ -31,7 +31,7 @@ def myname():
     return os.path.basename(sys.argv[0])
 
 def warn(*args):
-    print(*args, file=sys.stderr)
+    print(myname() + ":", *args, file=sys.stderr)
 
 def verbose(options, *args):
     if options.verbosity:
@@ -61,7 +61,7 @@ def photo_time(fn, options):
             try:
                 timestr = data[options.tag].printable
             except KeyError:
-                warn(options, "no",  options.tag, "in", fn)
+                warn("no",  options.tag, "in", fn)
                 return None
             verbose2(options, fn, options.tag, "=", timestr)
             try:
