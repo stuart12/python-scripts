@@ -37,8 +37,11 @@ def call(cmd, options=None):
     subprocess.check_call(cmd)
 
 def doit(options=None):
-    call(["xset", "dpms", "force", "off"], options=options)
-    call(["gnome-screensaver-command", "--lock"], options=options)
+    if options.gnome:
+        call(["xset", "dpms", "force", "off"], options=options)
+        call(["gnome-screensaver-command", "--lock"], options=options)
+    else:
+        call(["light-locker-command", "--lock"], options=options)
 
 def main():
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter,
@@ -48,7 +51,7 @@ def main():
     #parser.add_argument("--min_play_time", metavar="SECONDS", type=int, default=9, help="minimum")
     parser.add_argument("-m", "--minutes", metavar="MINUTES", default="14,29,44,59", help="minutes in cron format")
     parser.add_argument("-H", "--hours", metavar="HOURS", default="0-4,22-23", help="hours in cron format")
-    #parser.add_argument('-a', "--add", action="store_true", help="add podcast urls to list")
+    parser.add_argument('-g', "--gnome", action="store_true", help="use GNOME lock commands")
     #parser.add_argument("--loop", action="store_true", help="play all podcasts")
 
     parser.add_argument('urls', nargs=argparse.REMAINDER, help='urls to (permanently) add to the play list')
