@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-# lockscreen4bed Copyright (c) 2016 Stuart Pook (http://www.pook.it/)
+# lockscreen4bed Copyright (c) 2016,2018 Stuart Pook (http://www.pook.it/)
 # Lock the screen every 15 minutes when it is time to go to bed.
 # This program is free software: you can redistribute it and/or modify it under
 # the terms of the GNU General Public License as published by the Free Software
