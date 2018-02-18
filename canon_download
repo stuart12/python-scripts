@@ -40,8 +40,11 @@ def quiet(options, *args):
 	if not options.quiet:
 		print(*args)
 
-def error(options, *args):
+def warn(options, *args):
 	print(myname() + ":", *args, file=sys.stderr)
+
+def error(options, *args):
+	warn(options, *args)
 	sys.exit(56)
 
 def read_record(options):
@@ -103,6 +106,7 @@ def look_for_directories(camera, where, seen, found, options):
 		]),
 		CameraInfo("Camera", "s", False, [
 			FileMapping(r"(?:IMG)_([0-9]{8})_([0-9]{6})\.jpg", r"\1_\2.jpg"),
+			FileMapping(r"(?:VID)_([0-9]{8})_([0-9]{6})\.mp4", r"\1_\2.mp4"),
 		]),
 		CameraInfo("CANON", "c", False, [
 			FileMapping(r"(?:MVI|_MG|IMG|MOV)_([0-9]{4})\.(JPG|MOV|CR2)", r"\1.\2"),
@@ -127,7 +131,7 @@ def look_for_directories(camera, where, seen, found, options):
 					verbose(options, "have a match on", d, "with", m)
 				break
 		else:
-			error(options, "unknown dir", nd)
+			warn(options, "unknown dir", nd)
 	return jobs
 
 def look_for_dcim(camera, where, seen, found, options):
