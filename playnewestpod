@@ -23,7 +23,7 @@ import subprocess
 import collections
 try:
     import podcastparser
-except ImportError:
+except ModuleNotFoundError:
     print(myname() + ": on debian: apt-get install python3-podcastparser", file=sys.stderr)
     raise
 import time
