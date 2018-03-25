@@ -26,6 +26,7 @@ import itertools
 import math
 import string
 import errno
+import subprocess
 
 def myname():
     return os.path.basename(sys.argv[0])
@@ -57,12 +58,15 @@ def same_prefix(filenames, options):
 def photo_time(fn, options):
     try:
         with open(fn, 'rb') as img:
-            data = exifread.process_file(img, stop_tag=options.tag, details=False)
-            try:
-                timestr = data[options.tag].printable
-            except KeyError:
-                warn("no",  options.tag, "in", fn)
-                return None
+            if fn.endswith(".png"):
+                timestr = subprocess.check_output(["exiftool", "-S", "-" + options.tag.replace(" ", ":"), fn]).decode('utf-8').strip().split(' ', 1)[1]
+            else:
+                data = exifread.process_file(img, stop_tag=options.tag, details=False)
+                try:
+                    timestr = data[options.tag].printable
+                except KeyError:
+                    warn("no",  options.tag, "in", fn)
+                    return None
             verbose2(options, fn, options.tag, "=", timestr)
             try:
                 ntime = time.strptime(timestr, "%Y:%m:%d %H:%M:%S")
