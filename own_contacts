@@ -355,7 +355,7 @@ def format_contacts(cache, options, args):
 .wh -0.8c NP
 """
 	else:
-		sz = 7.9
+		sz = 8.9
 		if options.text_size:
 			sz = options.text_size
 		output.write('.ps %f\n' % sz)
