@@ -33,7 +33,7 @@ def check_suffix(address, domain, machine):
     error('bad domain found on', machine, domain, parts[1])
 
 def get_aliases(machine, command, domain):
-    args = [ "ssh", "-n", machine ]
+    args = [ "ssh", "-T", "-n", machine ]
     if command:
         args.append(command)
     r = {}
@@ -52,7 +52,7 @@ def get_aliases(machine, command, domain):
     return r 
 
 def add_alias(machine, command, destination):
-    args = [ "ssh", "-n", machine ]
+    args = [ "ssh", "-T", "-n", machine ]
     if command:
         args.append(command)
     args.append(destination)
