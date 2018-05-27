@@ -1,0 +1,138 @@
+#!/usr/bin/python3
+# create-alias Copyright (C) 2018 Stuart Pook (http://www.pook.it/)
+# Create a new email aliases or show all existing aliases
+#
+# This program is free software: you can redistribute it and/or modify it under
+# the terms of the GNU General Public License as published by the Free Software
+# Foundation, either version 3 of the License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+# FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+import sys
+import argparse
+import subprocess
+import os
+import tempfile
+
+def myname():
+    return os.path.basename(sys.argv[0])
+
+def error(*mess):
+    print(myname() + ":", *mess, file=sys.stderr)
+    sys.exit(1)
+
+def check_suffix(address, domain, machine):
+    parts = address.strip().split('@', 1)
+    if len(parts) == 1 or domain == parts[1]:
+        return parts[0]
+    error('bad domain found on', machine, domain, parts[1])
+
+def get_aliases(machine, command, domain):
+    args = [ "ssh", "-n", machine ]
+    if command:
+        args.append(command)
+    r = {}
+    with subprocess.Popen(args, universal_newlines=True, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE) as pipe:
+        for line in pipe.stdout:
+            l = line.strip()
+            if len(l) > 0:
+                fields = l.split(':', 1)
+                if len(fields) != 2:
+                    error("bad line from", machine + ":", l)
+                alias = check_suffix(fields[0], domain, machine)
+                destination = check_suffix(fields[1], domain, machine)
+                r[alias] = destination
+        if pipe.wait() != 0:
+            error("failed to read aliases from", machine + ":", pipe.returncode)
+    return r 
+
+def add_alias(machine, command, destination):
+    args = [ "ssh", "-n", machine ]
+    if command:
+        args.append(command)
+    args.append(destination)
+    p = subprocess.run(args, universal_newlines=True, stdout=subprocess.PIPE, stdin=subprocess.DEVNULL)
+    p.check_returncode()
+    fields = p.stdout.split(':', 1)
+    if len(fields) != 2:
+        error("bad reply from", machine, "after add:",  p.stdout.strip())
+    new_alias = fields[0].split('@')[0].strip()
+    new_destination = fields[1].split('@')[0].strip()
+    return new_alias, new_destination
+
+def read_backup(backup):
+    r = {}
+    try:
+        with open(backup) as f:
+            for line in f:
+                fields = line.split(":")
+                if len(fields) != 2:
+                    error("bad line in backup", backup + ":", line.strip())
+                r[fields[0].strip()] = fields[1].strip()
+    except FileNotFoundError:
+        pass
+    return r
+
+def backup_aliases(all_aliases, backup):
+    if read_backup(backup) != all_aliases:
+        with tempfile.NamedTemporaryFile(mode="w", dir=os.path.dirname(backup)) as tmp:
+            for k, v in all_aliases.items():
+                print(k, ":", v, file=tmp)
+            tmp.flush()
+            os.rename(tmp.name, backup)
+            os.link(backup, tmp.name)
+
+def get_reverse(all_aliases):
+    r = {}
+    for k, v in all_aliases.items():
+        fields = v.split('-', 4)
+        if len(fields) == 4:
+            r[fields[3]] = k
+    return r
+
+def run(connections, alias_for, domain, backup):
+    alias_array = [ [conx[0], conx[1], get_aliases(conx[0], conx[1], domain)] for conx in connections ]
+    all_aliases = {}
+    for aliases in alias_array:
+        all_aliases.update(aliases[2])
+    for aliases in alias_array:
+        for missing in all_aliases.keys() - aliases[2].keys():
+            print(aliases[0], "is missing", missing, all_aliases[missing])
+            add_alias(aliases[0], aliases[1], missing + ":" + all_aliases[missing])
+            aliases[2][missing] = all_aliases[missing]
+    if alias_for is None:
+        for k, v in all_aliases.items():
+            print(k + "@" + domain, ":", v)
+    else:
+        existing = get_reverse(all_aliases).get(alias_for, None)
+        if existing is not None:
+            print("for", alias_for, "already have:", existing + "@" + domain)
+        else:
+            new_alias, new_destination = add_alias(connections[0][0], connections[0][1], alias_for)
+            for conx in connections[1:]:
+                add_alias(conx[0], conx[1], new_alias + ":" + new_destination)
+            print("for", alias_for, "now have:", new_alias + "@" + domain)
+            all_aliases[new_alias] = new_destination
+    backup_aliases(all_aliases, backup)
+
+def main():
+    parser = argparse.ArgumentParser(allow_abbrev=False, description='add an alias or show them all',
+            formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser.add_argument("--machine1", default="stuart@shiva", help="connection string for first machine")
+    parser.add_argument("--command1", default="scripts/create-alias.py", help="command on first machine")
+    parser.add_argument("--machine2", default="email-aliases", help="connection string for second machine")
+    parser.add_argument("--command2", default=None, help="command on second machine")
+    parser.add_argument("--domain", default="pook.it", help="domain")
+    parser.add_argument("--backup", default=os.path.expanduser("~/var/email-aliases.cache"), metavar="FILE", help="file to backup aliases")
+    parser.add_argument("alias", nargs='?', default=None, help="alias to add")
+
+    args = parser.parse_args()
+    run([ [args.machine1, args.command1], [args.machine2, args.command2] ], args.alias, args.domain, args.backup)
+
+if __name__ == '__main__':
+    main()
