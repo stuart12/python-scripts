@@ -1,0 +1,109 @@
+#!/usr/bin/python3
+# dcim-read Copyright (C) 2018 Stuart Pook (http://www.pook.it/)
+# read photos from a camera's memory card
+#
+# This program is free software: you can redistribute it and/or modify it under
+# the terms of the GNU General Public License as published by the Free Software
+# Foundation, either version 3 of the License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+# FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+import sys
+import argparse
+import subprocess
+import getpass
+import os
+import tempfile
+import shutil
+import re
+import logging
+
+def myname():
+    return os.path.basename(sys.argv[0])
+
+def error(*mess):
+    print(myname() + ":", *mess, file=sys.stderr)
+    sys.exit(1)
+
+def do_mount(dev, label, umount=False):
+    cmd = ["udisksctl"]
+    cmd.extend(["unmount"] if umount else ["mount", "-o", "ro"])
+    cmd.extend(["-b", os.path.join(dev, label)])
+    subprocess.check_call(cmd)
+
+def read_photo(path, photo, destination, suffix, seen):
+    final = os.path.join(destination, photo + "." + suffix)
+    with open(path, "rb") as data:
+        with tempfile.NamedTemporaryFile(dir=destination) as tmp:
+            shutil.copyfileobj(data, tmp)
+            tmp.flush()
+            os.rename(tmp.name, final)
+            os.link(final, tmp.name)
+            seen.write(photo + "\n")
+            logging.info("read " + photo + "." + suffix)
+
+def read_photos_dir(directory, prefix, record, seen, destination):
+    jpegs = []
+
+    for entry in os.listdir(directory):
+        path = os.path.join(directory, entry)
+        photo_field, type_field = entry.split('.')
+        photo = prefix + photo_field[3:]
+        if photo not in record:
+            photo_type = type_field.lower()
+            to = os.path.join(destination, photo + "." + photo_type)
+            if photo_type == "jpg":
+                jpegs.append([path, photo, destination, photo_type, seen])
+            else:
+                read_photo(path, photo, destination, photo_type, seen)
+                record.add(photo)
+    for path, photo, destination, photo_type, seen in jpegs:
+        if photo not in record:
+            read_photo(path, photo, destination, photo_type, seen)
+
+
+
+def read_photos(directory, seen, destination):
+    records = set([line.strip().split('.')[0] for line in seen])
+    for entry in os.listdir(directory):
+        match = re.match(r"\d\d\d", entry)
+        if match:
+            read_photos_dir(os.path.join(directory, entry), match.group(0), records, seen, destination)
+
+def run(label, dev, mount, subdirectory, seen, destination):
+    source = os.path.join(mount, label, subdirectory)
+    if not os.path.isdir(source):
+        do_mount(dev, label)
+
+    with open(seen, "r+") as record:
+        read_photos(source, record, destination)
+
+    do_mount(dev, label, umount=True)
+
+def main():
+    parser = argparse.ArgumentParser(allow_abbrev=False, description="read photos froma camera's memory stick",
+            formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser.add_argument("-l", "--label", default="EOS_DIGITAL", help="memory card label")
+    parser.add_argument("--dev", default="/dev/disk/by-label", help="directory of device labels")
+    parser.add_argument("-v", "--verbose", dest='loglevel', action='store_const', const='info', default='warn', help='set log level to info')
+    parser.add_argument("--mount", default=os.path.join("/", "media", getpass.getuser()), help="directory of mount points")
+    parser.add_argument("--subdirectory", default="DCIM", help="subdirectory to scan")
+    parser.add_argument("-d", "--destination", default=".", help="directory to read into")
+    parser.add_argument("--seen", default=os.path.expanduser("~/var/photos/seen"), metavar="FILE", help="list of read photos")
+
+    args = parser.parse_args()
+    loglevel = args.loglevel
+    numeric_level = getattr(logging, loglevel.upper(), None)
+    if not isinstance(numeric_level, int):
+        raise ValueError('Invalid log level: %s' % loglevel)
+    logging.basicConfig(level=numeric_level)
+
+    run(args.label, args.dev, args.mount, args.subdirectory, args.seen, args.destination)
+
+if __name__ == '__main__':
+    main()
