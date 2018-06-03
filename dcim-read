@@ -27,7 +27,7 @@ def myname():
     return os.path.basename(sys.argv[0])
 
 def error(*mess):
-    print(myname() + ":", *mess, file=sys.stderr)
+    logging.error(*mess)
     sys.exit(1)
 
 def do_mount(dev, label, umount=False):
@@ -51,11 +51,13 @@ def read_photos_dir(directory, prefix, record, seen, destination):
     jpegs = []
 
     for entry in os.listdir(directory):
+        match = re.match(r"..._(\d\d\d\d)\.(...)", entry)
+        if not match:
+            error("bad entry %s in %s", entry, directory)
         path = os.path.join(directory, entry)
-        photo_field, type_field = entry.split('.')
-        photo = prefix + photo_field[3:]
+        photo = prefix + match.group(1)
         if photo not in record:
-            photo_type = type_field.lower()
+            photo_type = match.group(2).lower()
             to = os.path.join(destination, photo + "." + photo_type)
             if photo_type == "jpg":
                 jpegs.append([path, photo, destination, photo_type, seen])
@@ -66,14 +68,12 @@ def read_photos_dir(directory, prefix, record, seen, destination):
         if photo not in record:
             read_photo(path, photo, destination, photo_type, seen)
 
-
-
 def read_photos(directory, seen, destination):
     records = set([line.strip().split('.')[0] for line in seen])
     for entry in os.listdir(directory):
-        match = re.match(r"\d\d\d", entry)
+        match = re.match(r"(\d\d\d)CANON", entry)
         if match:
-            read_photos_dir(os.path.join(directory, entry), match.group(0), records, seen, destination)
+            read_photos_dir(os.path.join(directory, entry), "c" + match.group(1), records, seen, destination)
 
 def run(label, dev, mount, subdirectory, seen, destination):
     source = os.path.join(mount, label, subdirectory)
@@ -86,7 +86,8 @@ def run(label, dev, mount, subdirectory, seen, destination):
     do_mount(dev, label, umount=True)
 
 def main():
-    parser = argparse.ArgumentParser(allow_abbrev=False, description="read photos froma camera's memory stick",
+    parser = argparse.ArgumentParser(allow_abbrev=False,
+            description="read photos from a camera's memory stick with a record",
             formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument("-l", "--label", default="EOS_DIGITAL", help="memory card label")
     parser.add_argument("--dev", default="/dev/disk/by-label", help="directory of device labels")
