@@ -36,18 +36,19 @@ def do_mount(dev, label, umount=False):
     cmd.extend(["-b", os.path.join(dev, label)])
     subprocess.check_call(cmd)
 
-def read_photo(path, photo, destination, suffix, seen):
+def read_photo(path, photo, destination, suffix, seen, file_mode):
     final = os.path.join(destination, photo + "." + suffix)
     with open(path, "rb") as data:
         with tempfile.NamedTemporaryFile(dir=destination) as tmp:
             shutil.copyfileobj(data, tmp)
             tmp.flush()
+            os.chmod(tmp.fileno(), file_mode)
             os.rename(tmp.name, final)
             os.link(final, tmp.name)
             seen.write(photo + "\n")
-            logging.info("read " + photo + "." + suffix)
+            logging.info("read %s.%s %#o", photo, suffix, file_mode)
 
-def read_photos_dir(directory, prefix, record, seen, destination):
+def read_photos_dir(directory, prefix, record, seen, destination, file_mode):
     jpegs = []
 
     for entry in os.listdir(directory):
@@ -62,34 +63,37 @@ def read_photos_dir(directory, prefix, record, seen, destination):
             if photo_type == "jpg":
                 jpegs.append([path, photo, destination, photo_type, seen])
             else:
-                read_photo(path, photo, destination, photo_type, seen)
+                read_photo(path, photo, destination, photo_type, seen, file_mode)
                 record.add(photo)
     for path, photo, destination, photo_type, seen in jpegs:
         if photo not in record:
-            read_photo(path, photo, destination, photo_type, seen)
+            read_photo(path, photo, destination, photo_type, seen, file_mode)
 
-def read_photos(directory, seen, destination):
+def read_photos(directory, seen, destination, file_mode):
     records = set([line.strip().split('.')[0] for line in seen])
     for entry in os.listdir(directory):
         match = re.match(r"(\d\d\d)CANON", entry)
         if match:
-            read_photos_dir(os.path.join(directory, entry), "c" + match.group(1), records, seen, destination)
+            read_photos_dir(os.path.join(directory, entry), "c" + match.group(1), records, seen, destination, file_mode)
 
-def run(label, dev, mount, subdirectory, seen, destination):
+def run(label, dev, mount, subdirectory, seen, destination, file_mode):
     source = os.path.join(mount, label, subdirectory)
     if not os.path.isdir(source):
         do_mount(dev, label)
 
     with open(seen, "r+") as record:
-        read_photos(source, record, destination)
+        read_photos(source, record, destination, file_mode)
 
     do_mount(dev, label, umount=True)
 
 def main():
+    umask = os.umask(0)
+    os.umask(umask)
     parser = argparse.ArgumentParser(allow_abbrev=False,
             description="read photos from a camera's memory stick with a record",
             formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument("-l", "--label", default="EOS_DIGITAL", help="memory card label")
+    parser.add_argument("--mode", default=0o666 & ~umask, type=int, help="mode for files")
     parser.add_argument("--dev", default="/dev/disk/by-label", help="directory of device labels")
     parser.add_argument("-v", "--verbose", dest='loglevel', action='store_const', const='info', default='warn', help='set log level to info')
     parser.add_argument("--mount", default=os.path.join("/", "media", getpass.getuser()), help="directory of mount points")
@@ -104,7 +108,7 @@ def main():
         raise ValueError('Invalid log level: %s' % loglevel)
     logging.basicConfig(level=numeric_level)
 
-    run(args.label, args.dev, args.mount, args.subdirectory, args.seen, args.destination)
+    run(args.label, args.dev, args.mount, args.subdirectory, args.seen, args.destination, args.mode)
 
 if __name__ == '__main__':
     main()
