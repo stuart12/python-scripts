@@ -33,7 +33,7 @@ def check_suffix(address, domain, machine):
     error('bad domain found on', machine, domain, parts[1])
 
 def get_aliases(machine, command, domain):
-    args = [ "ssh", "-T", "-n", machine ]
+    args = [ "ssh", "-Tnax", machine ]
     if command:
         args.append(command)
     r = {}
@@ -52,7 +52,7 @@ def get_aliases(machine, command, domain):
     return r 
 
 def add_alias(machine, command, destination):
-    args = [ "ssh", "-T", "-n", machine ]
+    args = [ "ssh", "-Tnax", machine ]
     if command:
         args.append(command)
     args.append(destination)
@@ -123,7 +123,7 @@ def run(connections, alias_for, domain, backup):
 def main():
     parser = argparse.ArgumentParser(allow_abbrev=False, description='add an alias or show them all',
             formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument("--machine1", default="stuart@shiva", help="connection string for first machine")
+    parser.add_argument("--machine1", default="shiva", help="connection string for first machine")
     parser.add_argument("--command1", default="scripts/create-alias.py", help="command on first machine")
     parser.add_argument("--machine2", default="email-aliases", help="connection string for second machine")
     parser.add_argument("--command2", default=None, help="command on second machine")
