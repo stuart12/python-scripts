@@ -81,7 +81,8 @@ def run(label, dev, mount, subdirectory, seen, destination, file_mode):
     if not os.path.isdir(source):
         do_mount(dev, label)
 
-    with open(seen, "r+") as record:
+    with open(seen, "a+") as record:
+        record.seek(0)
         read_photos(source, record, destination, file_mode)
 
     do_mount(dev, label, umount=True)
