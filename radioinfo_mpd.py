@@ -14,6 +14,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 import os
 import sys
+import re
 import subprocess
 import radioinfo
 import mpd_playurl
@@ -43,7 +44,11 @@ def main():
     parser.add_argument('station', nargs=argparse.REMAINDER, help='stations to lookup')
 
     options = parser.parse_args()
+
     urls = [radioinfo.geturl(name) for name in options.station]
+    urls = [re.sub(r'^[-A-Za-z0-9+.]*:', lambda pat: pat.group(0).lower(), url) for url in urls]
+    verbose1(options.verbosity, urls)
+
     mpd_playurl.playurls(urls, verbosity=options.verbosity)
 
 if __name__ == "__main__":
