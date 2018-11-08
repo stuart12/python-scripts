@@ -73,7 +73,7 @@ def send(client, address, delay, topic):
 # https://techtutorialsx.com/2017/04/14/python-publishing-messages-to-mqtt-topic/
 def mqtt(delay, address, broker, user, password, topic):
     import paho.mqtt.client as mqttClient
-    client = mqttClient.Client(client_id="mcp9808", userdata=(address, delay, topic))
+    client = mqttClient.Client(client_id="mcp9808")
     client.username_pw_set(user, password=password)
     logging.debug("connect to %s", broker)
     client.connect(broker)
