@@ -1,6 +1,7 @@
 #!/usr/bin/python3 -B
 # mcp9809mqtt Copyright (c) 2018 Stuart Pook (http://www.pook.it/)
-# Read a MCP9809 thermometre and send values to MQTT
+# Read a MCP9809 thermometer and publish the temperature by MQTT
+
 # This program is free software: you can redistribute it and/or modify it under
 # the terms of the GNU General Public License as published by the Free Software
 # Foundation, either version 3 of the License, or (at your option) any later version.
@@ -12,29 +13,41 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+# https://learn.adafruit.com/adafruit-mcp9808-precision-i2c-temperature-sensor-guide/python-circuitpython
+
 import sys
 import argparse
 import time
 import board
 import busio # https://circuitpython.readthedocs.io/en/2.x/shared-bindings/busio/I2C.html
 import adafruit_mcp9808
+import logging
 
-def print_temperature(delay, address):
+def get_thermometers(address):
+    if address:
+        logging.debug("get thermometer at %#x", address)
+    else:
+        logging.debug("get all thermometers")
     i2c_bus = busio.I2C(board.SCL, board.SDA)
     while not i2c_bus.try_lock():
         time.sleep(2)
-    addresses = [device_address for device_address in i2c_bus.scan()]
+    addresses = i2c_bus.scan()
+    logging.debug("found thermometers at %s", [hex(a) for a in addresses])
     i2c_bus.unlock()
 
+    if not addresses:
+        sys.exit('no devices found')
     if address is not None:
         if address not in addresses:
-            sys.exit("no device at requested address %x (found %s)" % (address, [hex(a) for a in addresses]))
+            sys.exit("no device at requested address %#x (found %s)" % (address, [hex(a) for a in addresses]))
         addresses = [address]
 
-    mcp9809 = [adafruit_mcp9808.MCP9808(i2c_bus, addr) for addr in addresses]
+    return [adafruit_mcp9808.MCP9808(i2c_bus, addr) for addr in addresses]
+
+def print_temperature(delay, address):
+    mcp9809 = get_thermometers(address)
     temps = []
     decimals = 0
-
     while True:
         ntemps = [round(mcp.temperature, decimals) for mcp in mcp9809]
         if ntemps != temps:
@@ -45,19 +58,56 @@ def print_temperature(delay, address):
             print('')
         time.sleep(delay)
 
+def send(client, address, delay, topic):
+    therms = get_thermometers(address)
+    if len(therms) != 1:
+        sys.exit("must specify an i2c address when multiple devices connected or use --print")
+    mcp9809 = therms[0]
+    logging.info("sending temperature from i2c address %#x to topic %s every %f seconds", address, topic, delay)
+    while True:
+        value = mcp9809.temperature
+        logging.debug("%f C" % value)
+        client.publish(topic, value, retain=True)
+        time.sleep(delay)
+
+# https://techtutorialsx.com/2017/04/14/python-publishing-messages-to-mqtt-topic/
+def mqtt(delay, address, broker, user, password, topic):
+    import paho.mqtt.client as mqttClient
+    client = mqttClient.Client(client_id="mcp9808", userdata=(address, delay, topic))
+    client.username_pw_set(user, password=password)
+    logging.debug("connect to %s", broker)
+    client.connect(broker)
+    logging.debug("connected to %s", broker)
+    send(client, address, delay, topic)
+
 def main():
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-            description="Read a MCP9809 thermometre and send values to MQTT")
+            description="Read a MCP9809 thermometer and send values to MQTT")
 
-    parser.add_argument("-v", "--verbosity", "--verbose", action="count", default=0, help="increase output verbosity")
-    parser.add_argument("--delay", metavar="SECONDS", type=int, default=59, help="time between reads")
-    parser.add_argument("-a", "--address", type=lambda x: int(x, 0), metavar="ADDRESS", default=None, help="IC2 bus address")
-    parser.add_argument("-p", "--print", action="store_true", help="print values, do not send")
+    parser.set_defaults(loglevel='warn')
+    parser.add_argument("-v", "--verbose", dest='loglevel', action="store_const", const='debug', help="debug loglevel")
+    parser.add_argument("-l", "--loglevel", metavar="LEVEL", help="set logging level")
+    parser.add_argument("--delay", metavar="SECONDS", type=float, default=59, help="time between reads")
+    parser.add_argument("-a", "--address", type=lambda x: int(x, 0), metavar="ADDRESS", help="IC2 bus address")
+    parser.add_argument("-P", "--print", action="store_true", help="print temperatures rather then sending")
+    parser.add_argument("-u", "--user", help="mqtt user")
+    parser.add_argument("-b", "--broker", default="localhost", help="mqtt broker")
+    parser.add_argument("-p", "--password", help="mqtt password")
+    parser.add_argument("-t", "--topic", help="mqtt topic name")
 
     options = parser.parse_args()
 
+    numeric_level = getattr(logging, options.loglevel.upper(), None)
+    if not isinstance(numeric_level, int):
+        sys.exit('Invalid log level: %s' % options.loglevel)
+    logging.basicConfig(level=numeric_level)
+
     if options.print:
         print_temperature(options.delay, options.address)
+    else:
+        if not options.topic:
+            sys.exit("must supply a mqtt topic")
+        mqtt(options.delay, options.address, options.broker, options.user, options.password, options.topic)
 
 if __name__ == "__main__":
     main()
