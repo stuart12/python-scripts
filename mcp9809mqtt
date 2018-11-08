@@ -1,0 +1,63 @@
+#!/usr/bin/python3 -B
+# mcp9809mqtt Copyright (c) 2018 Stuart Pook (http://www.pook.it/)
+# Read a MCP9809 thermometre and send values to MQTT
+# This program is free software: you can redistribute it and/or modify it under
+# the terms of the GNU General Public License as published by the Free Software
+# Foundation, either version 3 of the License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+# FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+import sys
+import argparse
+import time
+import board
+import busio # https://circuitpython.readthedocs.io/en/2.x/shared-bindings/busio/I2C.html
+import adafruit_mcp9808
+
+def print_temperature(delay, address):
+    i2c_bus = busio.I2C(board.SCL, board.SDA)
+    while not i2c_bus.try_lock():
+        time.sleep(2)
+    addresses = [device_address for device_address in i2c_bus.scan()]
+    i2c_bus.unlock()
+
+    if address is not None:
+        if address not in addresses:
+            sys.exit("no device at requested address %x (found %s)" % (address, [hex(a) for a in addresses]))
+        addresses = [address]
+
+    mcp9809 = [adafruit_mcp9808.MCP9808(i2c_bus, addr) for addr in addresses]
+    temps = []
+    decimals = 0
+
+    while True:
+        ntemps = [round(mcp.temperature, decimals) for mcp in mcp9809]
+        if ntemps != temps:
+            temps = ntemps
+            print(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()), end='')
+            for temp in temps:
+                print(" %0.*f" % (decimals, temp), end='')
+            print('')
+        time.sleep(delay)
+
+def main():
+    parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+            description="Read a MCP9809 thermometre and send values to MQTT")
+
+    parser.add_argument("-v", "--verbosity", "--verbose", action="count", default=0, help="increase output verbosity")
+    parser.add_argument("--delay", metavar="SECONDS", type=int, default=59, help="time between reads")
+    parser.add_argument("-a", "--address", type=lambda x: int(x, 0), metavar="ADDRESS", default=None, help="IC2 bus address")
+    parser.add_argument("-p", "--print", action="store_true", help="print values, do not send")
+
+    options = parser.parse_args()
+
+    if options.print:
+        print_temperature(options.delay, options.address)
+
+if __name__ == "__main__":
+    main()
