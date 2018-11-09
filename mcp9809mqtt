@@ -93,6 +93,7 @@ def main():
     parser.add_argument("-u", "--user", help="mqtt user")
     parser.add_argument("-b", "--broker", default="localhost", help="mqtt broker")
     parser.add_argument("-p", "--password", help="mqtt password")
+    parser.add_argument("--passwdfile", metavar="FILENAME", help="file containing mqtt password")
     parser.add_argument("-t", "--topic", help="mqtt topic name")
 
     options = parser.parse_args()
@@ -107,7 +108,12 @@ def main():
     else:
         if not options.topic:
             sys.exit("must supply a mqtt topic")
-        mqtt(options.delay, options.address, options.broker, options.user, options.password, options.topic)
+        if options.passwdfile:
+            with open(options.passwdfile) as f:
+                passwd = f.readline().strip('\n')
+        else:
+            passwd = options.password
+        mqtt(options.delay, options.address, options.broker, options.user, passwd, options.topic)
 
 if __name__ == "__main__":
     main()
