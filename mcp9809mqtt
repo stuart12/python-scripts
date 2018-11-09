@@ -47,7 +47,7 @@ def get_thermometers(address):
 def print_temperature(delay, address):
     mcp9809 = get_thermometers(address)
     temps = []
-    decimals = 0
+    decimals = 1
     while True:
         ntemps = [round(mcp.temperature, decimals) for mcp in mcp9809]
         if ntemps != temps:
@@ -64,11 +64,13 @@ def send(client, address, delay, topic):
         sys.exit("must specify an i2c address when multiple devices connected or use --print")
     mcp9809 = therms[0]
     logging.info("sending temperature from i2c address %#x to topic %s every %f seconds", address, topic, delay)
+    level = logging.INFO
     while True:
         value = mcp9809.temperature
-        logging.debug("%f C" % value)
         client.publish(topic, value, retain=True)
+        logging.log(level, "published temperature %0.4f C", value)
         time.sleep(delay)
+        level = logging.DEBUG
 
 # https://techtutorialsx.com/2017/04/14/python-publishing-messages-to-mqtt-topic/
 def mqtt(delay, address, broker, user, password, topic):
@@ -77,7 +79,7 @@ def mqtt(delay, address, broker, user, password, topic):
     client.username_pw_set(user, password=password)
     logging.debug("connect to %s", broker)
     client.connect(broker)
-    logging.debug("connected to %s", broker)
+    logging.info("connected to MQTT broker %s as %s", broker, user)
     send(client, address, delay, topic)
 
 def main():
