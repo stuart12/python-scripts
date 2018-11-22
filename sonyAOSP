@@ -1,6 +1,6 @@
 #!/usr/bin/python3 -B
 # SonyAOSP Copyright (c) 2018 Stuart Pook (http://www.pook.it/)
-# Compile SonyAOSP for my two SOny devices
+# Compile AOSP for my two Sony devices
 
 # This program is free software: you can redistribute it and/or modify it under
 # the terms of the GNU General Public License as published by the Free Software
@@ -21,18 +21,20 @@ import time
 import logging
 import tempfile
 import subprocess
+import grp
+import pwd
+import shlex
 import os.path
 
 script = """
 set -ex
-HOME=$(mktemp -d)
-export HOME
+git config --global user.name "Stuart Pool"
+git config --global user.email "pool565@free.fr"
 curl --silent --show-error --output $HOME/repo http://commondatastorage.googleapis.com/git-repo-downloads/repo
 chmod 755 $HOME/repo
 
 # https://developer.sony.com/develop/open-devices/guides/aosp-build-instructions/build-aosp-nougat-7-1#tutorial-step-4
 
-dpkg -s bison g++-multilib git gperf libxml2-utils make zlib1g-dev:i386 zip liblz4-tool > /dev/null
 r=android-7.1.1_r55
 mkdir -p $r
 cd $r
@@ -60,6 +62,9 @@ done
 
 source build/envsetup.sh && lunch aosp_d5503-userdebug
 (cd vendor/qcom/opensource/dataservices && git checkout aa63b64b92d11cc628621b60d78c9a7e8c609201^1)
+
+dpkg -s bison g++-multilib git gperf libxml2-utils make zlib1g-dev:i386 zip liblz4-tool > /dev/null
+
 LC_ALL=C ionice nice make -j 4
 
 source build/envsetup.sh && lunch aosp_sgp611-userdebug
@@ -73,20 +78,26 @@ fastboot flash userdata $r/out/target/product/$device/userdata.img
 Eof
 """
 
-def run():
-    with tempfile.NamedTemporaryFile(mode='w+') as shscript:
-        shscript.write(script)
+def run(build_dir, interactive):
+    build_directory = os.path.abspath(build_dir)
+    build_stat = os.stat(build_directory)
+    user = pwd.getpwuid(os.stat(build_directory).st_uid).pw_name
+    with tempfile.TemporaryFile(mode='w+') as shscript:
+        shscript.write("/bin/bash -i" if interactive else script)
         shscript.flush()
         shscript.seek(0, 0)
-        logging.debug("script is %s", shscript.name)
         cmd = [
             "sudo", "systemd-run",
-            "--pipe",
+            "--pty" if interactive else "--pipe",
             "-p", "PrivateTmp=true",
             "-p", "PrivateUsers=true",
-            "-p", "WorkingDirectory=" + os.getcwd(),
-            "-p", "User=compile",
-            "-p", "InaccessiblePaths=/boot " + os.path.expanduser("~"),
+            "-p", "ProtectHome=true",
+            "--setenv", "HOME=/var/tmp",
+            "-p", "WorkingDirectory=" + build_directory,
+            "-p", "ReadWritePaths=" + build_directory,
+            "-p", "User=" + pwd.getpwuid(build_stat.st_uid).pw_name,
+            "-p", "Group=" + grp.getgrgid(build_stat.st_gid).gr_name,
+            #"-p", "InaccessiblePaths=/boot " + os.path.expanduser("~"),
             "-p", "DevicePolicy=closed",
             "-p", "CapabilityBoundingSet=",
             "-p", "NoNewPrivileges=true",
@@ -103,25 +114,22 @@ def run():
             "-p", "MemoryDenyWriteExecute=false",
             "-p", "IPAddressDeny=localhost",
             "-p", "IPAccounting=true",
-            "/bin/bash", "-xe"]
-        logging.debug("cmd is %s", " ".join(cmd))
-        subprocess.call(cmd, stdin=shscript)
+            "/bin/bash", "-i" if interactive else "-xe"]
+        logging.debug("cmd is %s", " ".join(shlex.quote(c) for c in cmd))
+        subprocess.call(cmd, stdin=None if interactive else shscript)
 
 
 def main():
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-            description="Read a MCP9809 thermometer and send values to MQTT")
+            description="Compile AOSP")
 
     parser.set_defaults(loglevel='warn')
     parser.add_argument("-v", "--verbose", dest='loglevel', action="store_const", const='debug', help="debug loglevel")
     parser.add_argument("-l", "--loglevel", metavar="LEVEL", help="set logging level")
-    parser.add_argument("--delay", metavar="SECONDS", type=float, default=59, help="time between reads")
-    parser.add_argument("-a", "--address", type=lambda x: int(x, 0), metavar="ADDRESS", help="IC2 bus address")
-    parser.add_argument("-P", "--print", action="store_true", help="print temperatures rather then sending")
-    parser.add_argument("-u", "--user", help="mqtt user")
-    parser.add_argument("-b", "--broker", default="localhost", help="mqtt broker")
-    parser.add_argument("-p", "--password", help="mqtt password")
-    parser.add_argument("-t", "--topic", help="mqtt topic name")
+    #parser.add_argument("--delay", metavar="SECONDS", type=float, default=59, help="time between reads")
+    #parser.add_argument("-a", "--address", type=lambda x: int(x, 0), metavar="ADDRESS", help="IC2 bus address")
+    parser.add_argument("-i", "--interactive", action="store_true", help="interactive shell")
+    parser.add_argument("-b", "--build", default=os.getcwd(), help="directory to build in")
 
     options = parser.parse_args()
 
@@ -130,7 +138,7 @@ def main():
         sys.exit('Invalid log level: %s' % options.loglevel)
     logging.basicConfig(level=numeric_level)
 
-    run()
+    run(options.build, options.interactive)
 
 if __name__ == "__main__":
     main()
