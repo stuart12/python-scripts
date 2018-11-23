@@ -78,10 +78,15 @@ fastboot flash userdata $r/out/target/product/$device/userdata.img
 Eof
 """
 
+def fatal(*mess):
+    logging.fatal(*mess)
+    sys.exit(43)
+
 def run(build_dir, interactive):
     build_directory = os.path.abspath(build_dir)
     build_stat = os.stat(build_directory)
-    user = pwd.getpwuid(os.stat(build_directory).st_uid).pw_name
+    if (build_stat.st_uid < 1):
+        fatal("do not run on root owned directory: %s (%d)", build_directory, build_stat.st_uid)
     with tempfile.TemporaryFile(mode='w+') as shscript:
         shscript.write("/bin/bash -i" if interactive else script)
         shscript.flush()
