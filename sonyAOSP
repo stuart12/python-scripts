@@ -13,64 +13,72 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-# https://developer.sony.com/develop/open-devices/guides/aosp-build-instructions/build-aosp-nougat-7-1#tutorial-step-5
+# systemctl status --type=service --state=running run-c*
 
 import sys
 import argparse
-import time
 import logging
 import tempfile
 import subprocess
-import grp
-import pwd
 import shlex
 import os.path
 
 script = """
 set -ex
-git config --global user.name "Stuart Pool"
-git config --global user.email "pool565@free.fr"
-curl --silent --show-error --output $HOME/repo http://commondatastorage.googleapis.com/git-repo-downloads/repo
-chmod 755 $HOME/repo
+git config --global user.name "Joe Smith"
+git config --global user.email joe.smith@free.fr
 
 # https://developer.sony.com/develop/open-devices/guides/aosp-build-instructions/build-aosp-nougat-7-1#tutorial-step-4
 
 r=android-7.1.1_r55
-mkdir -p $r
-cd $r
+#mkdir -p $r
+#cd $r
+
+binaries=../SW_binaries_for_Xperia_AOSP_M_MR1_3.10_v13_legacy.zip
+(cd $(dirname $binaries) && sha256sum -c) < ${binaries}.sha256
+dpkg -s bison g++-multilib git gperf libxml2-utils make zlib1g-dev:i386 zip liblz4-tool > /dev/null
+
+mkdir -p $HOME/bin
+curl --silent --show-error --output $HOME/bin/repo http://commondatastorage.googleapis.com/git-repo-downloads/repo
+chmod 755 $HOME/bin/repo
+export PATH=$HOME/bin:$PATH
+
+rm -rf *
 : strace -f -e '!poll,select' 
-time $HOME/repo init -u https://android.googlesource.com/platform/manifest -b $r # --depth 1
+time repo init -u https://android.googlesource.com/platform/manifest -b $r # --depth 1
 
 cd .repo
-git clone https://github.com/sonyxperiadev/local_manifests
+[ -d local_manifests ] || git clone https://github.com/sonyxperiadev/local_manifests
 cd local_manifests
 git checkout n-mr1_3.10
 cd ../..
 
-$HOME/repo sync
+repo sync
 ./repo_update.sh
-sha256sum -c ../../SW_binaries_for_Xperia_AOSP_M_MR1_3.10_v13_legacy.zip.sha256
-unzip ../../SW_binaries_for_Xperia_AOSP_M_MR1_3.10_v13_legacy.zip
+unzip -oq ${binaries}
 
 device=amami
 #echo '$(call inherit-product, external/stuart-google/stuart-google.mk)' >> device/sony/$device/device.mk
 packages="GoogleServicesFramework FDroid PrebuiltGmsCore Phonesky"
-sed -i -e 's/\(PRODUCT_PACKAGES +=\) /\1'"$packages"' /' build/target/product/core.mk
+sed -i -e 's/PRODUCT_PACKAGES += /PRODUCT_PACKAGES +='"$packages"' /' build/target/product/core.mk
+mkdir packages/priv-apps
 for i in $packages; do
-    ln -sf ../../../../stuart-google/$i/ packages/priv-apps/
+    ln -sf ../../../extra-packages/$i/ packages/priv-apps/.
+    wc packages/priv-apps/$i/$i.apk packages/priv-apps/$i/Android.mk > /dev/null
 done
 
 source build/envsetup.sh && lunch aosp_d5503-userdebug
 (cd vendor/qcom/opensource/dataservices && git checkout aa63b64b92d11cc628621b60d78c9a7e8c609201^1)
 
-dpkg -s bison g++-multilib git gperf libxml2-utils make zlib1g-dev:i386 zip liblz4-tool > /dev/null
-
-LC_ALL=C ionice nice make -j 4
+LC_ALL=C make -j $(grep -c ^processor /proc/cpuinfo)
 
 source build/envsetup.sh && lunch aosp_sgp611-userdebug
-LC_ALL=C ionice nice make -j 4
+LC_ALL=C make -j $(grep -c ^processor /proc/cpuinfo)
 
 cat << Eof
+simg2img $r/out/target/product/$device/system.img /tmp/system.img
+sudo mount -r /tmp/system.img /mnt
+
 fastboot flash boot $r/out/target/product/$device/boot.img
 fastboot flash recovery $r/out/target/product/$device/recovery.img
 fastboot flash system $r/out/target/product/$device/system.img
@@ -82,27 +90,34 @@ def fatal(*mess):
     logging.fatal(*mess)
     sys.exit(43)
 
-def run(build_dir, interactive):
-    build_directory = os.path.abspath(build_dir)
-    build_stat = os.stat(build_directory)
+def run(build_dir, interactive, unit_format):
+    compile_directory = os.path.abspath(build_dir)
+    top_directory = os.path.dirname(compile_directory)
+    logging.debug("stat on %s", compile_directory)
+    build_stat = os.stat(compile_directory)
     if (build_stat.st_uid < 1):
-        fatal("do not run on root owned directory: %s (%d)", build_directory, build_stat.st_uid)
+        fatal("do not run on root owned directory: %s (uid=%d)", build_directory, build_stat.st_uid)
+    home = os.path.join(top_directory, "home")
     with tempfile.TemporaryFile(mode='w+') as shscript:
-        shscript.write("/bin/bash -i" if interactive else script)
+        shscript.write(script)
         shscript.flush()
         shscript.seek(0, 0)
+        name = unit_format % os.getpid()
         cmd = [
             "sudo", "systemd-run",
             "--pty" if interactive else "--pipe",
+            "--unit", name,
+            "-p", "Nice=10",
+            "-p", "IOSchedulingPriority=6",
             "-p", "PrivateTmp=true",
             "-p", "PrivateUsers=true",
             "-p", "ProtectHome=true",
-            "--setenv", "HOME=/var/tmp",
-            "-p", "WorkingDirectory=" + build_directory,
-            "-p", "ReadWritePaths=" + build_directory,
-            "-p", "User=" + pwd.getpwuid(build_stat.st_uid).pw_name,
-            "-p", "Group=" + grp.getgrgid(build_stat.st_gid).gr_name,
-            #"-p", "InaccessiblePaths=/boot " + os.path.expanduser("~"),
+            "--setenv", "HOME=" + home,
+            "-p", "WorkingDirectory=" + compile_directory,
+            "-p", "ReadWritePaths=" + top_directory,
+            "-p", "User=%d" % build_stat.st_uid,
+            "-p", "Group=%d" % build_stat.st_gid,
+            "-p", "InaccessiblePaths=/boot",
             "-p", "DevicePolicy=closed",
             "-p", "CapabilityBoundingSet=",
             "-p", "NoNewPrivileges=true",
@@ -111,18 +126,26 @@ def run(build_dir, interactive):
             "-p", "ProtectKernelModules=true",
             "-p", "ProtectKernelTunables=true",
             "-p", "ProtectSystem=strict",
-            "-p", "RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6",
+            "-p", "RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK",
             "-p", "RestrictRealtime=true",
             "-p", "RestrictNamespaces=true",
             "-p", "LockPersonality=true",
             "-p", "RemoveIPC=true",
             "-p", "MemoryDenyWriteExecute=false",
-            "-p", "IPAddressDeny=localhost",
+            #"-p", "IPAddressDeny=localhost", # jack server
             "-p", "IPAccounting=true",
+            "-p", "CPUAccounting=true",
+            "-p", "MemoryAccounting=true",
+            "-p", "TasksAccounting=true",
+            "-p", "IOAccounting=true", # man systemd.resource-control
             "/bin/bash", "-i" if interactive else "-xe"]
         logging.debug("cmd is %s", " ".join(shlex.quote(c) for c in cmd))
-        subprocess.call(cmd, stdin=None if interactive else shscript)
-
+        try:
+            subprocess.call(cmd, stdin=None if interactive else shscript)
+        except PermissionError as ex:
+            logging.warn("PermissionError: %s", ex)
+        subprocess.call(["systemctl", "status", name])
+        #subprocess.call(["sudo", "systemctl", "stop", name])
 
 def main():
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter,
@@ -135,6 +158,7 @@ def main():
     #parser.add_argument("-a", "--address", type=lambda x: int(x, 0), metavar="ADDRESS", help="IC2 bus address")
     parser.add_argument("-i", "--interactive", action="store_true", help="interactive shell")
     parser.add_argument("-b", "--build", default=os.getcwd(), help="directory to build in")
+    parser.add_argument("--unit_format", default="run-c%d", help="format to build systemd-run unit name")
 
     options = parser.parse_args()
 
@@ -143,7 +167,7 @@ def main():
         sys.exit('Invalid log level: %s' % options.loglevel)
     logging.basicConfig(level=numeric_level)
 
-    run(options.build, options.interactive)
+    run(options.build, options.interactive, options.unit_format)
 
 if __name__ == "__main__":
     main()
