@@ -94,17 +94,23 @@ def shrink(inputfile, options):
 	if ih and iw and ih > iw:
 		width, height = height, width
 	if not (width and height) or iw <= width * options.size_margin and ih <= height * options.size_margin:
-		if options.no_dimensions_symlink:
-			shutil.copyfile(inputfile, options.output)
+		if options.reflink:
+			subprocess.check_call(["cp", "--reflink=" + options.reflink, inputfile, options.output])
 		else:
-			os.symlink(inputfile, options.output)
+			if options.no_dimensions_symlink:
+				shutil.copyfile(inputfile, options.output)
+			else:
+				os.symlink(inputfile, options.output)
 	else:
 		im.thumbnail((width, height), Image.ANTIALIAS)
 		im.save(options.output, "JPEG", quality=options.quality)
 		copy_exif_data(im, inputfile, options.output, options)
 		if os.path.getsize(options.output) > os.path.getsize(inputfile) * 1.2:
 			os.remove(options.output)
-			os.symlink(inputfile, options.output)
+			if options.reflink:
+				subprocess.check_call(["cp", "--reflink=" + options.reflink, inputfile, options.output])
+			else:
+				os.symlink(inputfile, options.output)
 
 def get_required_exif_data(options, exif):
 	# https://git.gnome.org/browse/gexiv2/tree/GExiv2.py
@@ -195,6 +201,7 @@ def main():
 	parser.add_option("-o", "--output", help="output file name [%default]")
 	parser.add_option("-v", "--verbose", action="store_true", help="verbose")
 	parser.add_option("--resizing_pp3", metavar="DUMMY", help="ignored [%default]")
+	parser.add_option("-R", "--reflink", default="always", help="cp reflink option [%default]")
 	parser.add_option("--no_dimensions_symlink", action="store_true", help="don't make any symlinks even if the dimensions seem ok")
 	parser.add_option("-m", "--size_margin", type='float', default=1.1, help="margin for files almost the same size [%default]")
 	parser.add_option("--ratio_change", type='float', default=0.002, help="maximum accepted ratio change after resize [%default]")
