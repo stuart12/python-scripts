@@ -21,9 +21,9 @@ import argparse
 import configparser
 import filecmp
 
-def verbose(args, *opts):
-	if args.verbosity:
-		print(os.path.basename(sys.argv[0]) + ":", *opts, file=sys.stderr)
+def verbose(options, *args):
+	if options.verbosity:
+		print(os.path.basename(sys.argv[0]) + ":", *args, file=sys.stderr)
 
 def warn(*opts):
 	print(os.path.basename(sys.argv[0]) + ": warn:", *opts, file=sys.stderr)
@@ -65,8 +65,11 @@ def get_backups(dirname, options):
 	try:
 		fns = os.listdir(dirname)
 	except FileNotFoundError:
-		check_call([options.btrfs, "subvolume", "create", dirname], options)
-		fns = []
+		if options.create_dest:
+		    check_call([options.btrfs, "subvolume", "create", dirname], options)
+		    fns = []
+		else:
+		    return None
 
 	r = []
 	for fn in fns:
@@ -110,7 +113,11 @@ def copy(src, dst, options):
 		if len(src_snapshots) == 0:
 			warn("source directory %s is empty" % src)
 			return options.missing
-		dst_snapshots = frozenset(get_backups(dst, options))
+		dst_snapshots_list = get_backups(dst, options)
+		if dst_snapshots_list is None:
+			verbose(options, "destination directory %s is missing" % dst)
+			return options.partial
+		dst_snapshots = frozenset(dst_snapshots_list)
 
 		target = src_snapshots[-1]
 		old_snapshot = os.path.join(src, target)
@@ -154,15 +161,16 @@ def copy_directories(src_dir, dst_dir, options):
 def main():
 	parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
-	parser.add_argument("-v", "--verbosity", action="count", default=0, help="increase output verbosity")
+	parser.add_argument("-v", "--verbosity", '--verbose', action="count", default=0, help="increase output verbosity")
 	parser.add_argument('--config', default=None, help='config file')
 	parser.add_argument('--good', default=".good", help='suffix for correctly transfered snapshots')
 	parser.add_argument('--btrfs', default="btrfs", help='btrfs command')
 	parser.add_argument('-c', '--compare', action='store_true', help='check that directories are the same')
 	parser.add_argument('-s', '--skip', action='store_true', help='status ok if directories have already been copied')
+	parser.add_argument('-p', '--partial', action='store_true', help='status ok if missing destination directory')
 	parser.add_argument('--missing', action='store_true', help='status ok if missing directories')
-	parser.add_argument('--no_create_dest', default=True, dest="create_dest", action='store_false', help='do not create destination')
-	parser.add_argument('--no_clean', default=True, dest="clean", action='store_false', help='do not clean destination volumes')
+	parser.add_argument('--no_create_dest', '--no-create-dest', default=True, dest="create_dest", action='store_false', help='do not create destination')
+	parser.add_argument('--no_clean', '--no-clean', default=True, dest="clean", action='store_false', help='do not clean destination volumes')
 	parser.add_argument('-D', '--directories', action='store_true', help='do subdirectories of arguments')
 
 	parser.add_argument('args', nargs=argparse.REMAINDER, help='command to run')
