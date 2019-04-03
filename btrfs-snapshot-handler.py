@@ -85,14 +85,14 @@ def check_call(command, options):
     p = subprocess.Popen(command, stderr=subprocess.STDOUT, stdout=stdout)
     return check_pipe(command, p, stdout, options) == 0
 
-def get_snapshots_to_delete(snapshots, keep, days, options):
+def get_snapshots_to_delete(snapshots, prefix, keep, days, options):
     ordered = sorted(snapshots)
     consider = ordered[:-keep] if keep > 0 else ordered
     if days < 0 or not consider:
         return consider
     now = datetime.datetime.now(pytz.utc)
     for index, snap in enumerate(consider):
-        dt = dateutil.parser.parse(snap)
+        dt = dateutil.parser.parse(snap[len(prefix):])
         age = (now - dt).days
         if age < days:
             verbose(options, "stopping deletes at %s (%s) as age %d days is not greater than limit %d" % (snap, dt, age, days))
@@ -102,14 +102,14 @@ def get_snapshots_to_delete(snapshots, keep, days, options):
         verbose(options, "no age restriction (%d days) applied so deleting %d" % (days, index))
     return consider[:index]
 
-def clean_snapshots(directory, keep, days, options):
+def clean_snapshots(directory, prefix, keep, days, options):
     if keep <= 0 and days <= 0:
         return True
-    snapshots = [fn for fn in os.listdir(directory) if all(c not in options.snapshot_saver for c in fn)]
+    snapshots = [fn for fn in os.listdir(directory) if fn.startswith(prefix) and all(c not in options.snapshot_saver for c in fn)]
     if not snapshots:
         return True
     verbose(options, "have %d snapshots in %s" % (len(snapshots), directory))
-    deleteable = get_snapshots_to_delete(snapshots, keep, days, options)
+    deleteable = get_snapshots_to_delete(snapshots, prefix, keep, days, options)
     if not deleteable:
         return True
 
@@ -117,11 +117,11 @@ def clean_snapshots(directory, keep, days, options):
     verbose(options, "delete %d snapshots in %s" % (len(to_delete), directory))
     return check_call([options.btrfs, "subvolume", "delete", *to_delete], options)
 
-def snapshot(src, dst_dir, keep, days, options):
-    dst = os.path.join(dst_dir, options.timestamp)
+def snapshot(src, dst_dir, prefix, keep, days, options):
+    dst = os.path.join(dst_dir, prefix + options.timestamp)
     if not check_call([options.btrfs, "subvolume", "snapshot", "-r", src, dst], options):
         return False
-    return clean_snapshots(dst_dir, keep, days, options)
+    return clean_snapshots(dst_dir, prefix, keep, days, options)
 
 def get_overridable_int(section, name, forced, default):
     return section.getint(name, default) if forced is None else forced
@@ -133,16 +133,22 @@ def snapshot_with_config(keep, days, options):
     ok = True
     for section_name in config.sections():
         section = config[section_name]
-        src = section.get("source", None)
-        if src == None:
-            src = os.path.join(section.get("sourcedirectory", None), section_name)
-        dst = section.get("destination", None)
-        if dst == None:
-            dst = os.path.join(section.get("destinationdirectory", None), section_name)
+        relative = section.get("relative", None)
+        if relative:
+            src_directory = section.get("sourcedirectory")
+            src = os.path.join(src_directory, section_name, relative)
+            dst = os.path.join(src_directory, section_name)
+        else:
+            src = section.get("source", None)
+            if src == None:
+                src = os.path.join(section.get("sourcedirectory", None), section_name)
+            dst = section.get("destination", None)
+            if dst == None:
+                dst = os.path.join(section.get("destinationdirectory", None), section_name)
 #        verbose(options, "Section: %s %s -> %s" % (section_name, src, dst))
         rdays = get_overridable_int(section, "days", days, -1)
         rkeep = get_overridable_int(section, "keep", keep, rdays)
-        ok = snapshot(src, dst, rkeep, rdays, options) and ok
+        ok = snapshot(src, dst, section.get("prefix", ""), rkeep, rdays, options) and ok
     return ok
 
 def snapshot_directories(src_dir, dst_dir, keep, days, options):
