@@ -20,7 +20,11 @@ import shlex
 import stat
 import tempfile
 import shutil
-import yaml
+try:
+	import yaml
+except ImportError:
+	print("sudo apt install python3-yaml", file=sys.stderr)
+	raise
 import copy
 import collections
 
