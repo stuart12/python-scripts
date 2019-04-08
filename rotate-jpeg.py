@@ -22,30 +22,30 @@ import sys
 try:
     import Image
 except ImportError:
-    print("sudo apt-get install  python-pil python-imaging")
+    print("sudo apt-get install python-pil python-imaging", file=sys.stderr)
     raise
 import string
 import optparse
 try:
     import pyexiv2
 except ImportError:
-    print("sudo apt-get install python-pyexiv2")
+    print("sudo apt-get install python-pyexiv2", file=sys.stderr)
     raise
 import collections
 try:
     import piexif
 except ImportError:
-    print("sudo apt-get install python-pip &&  pip install piexif")
+    print("sudo apt install python-piexif", file=sys.stderr)
     raise
 try:
     import cv2
 except ImportError:
-    print("sudo apt-get install python-opencv")
+    print("sudo apt-get install python-opencv", file=sys.stderr)
     raise
 try:
     import lensfunpy
 except ImportError:
-    print("sudo apt-get install liblensfun0 liblensfun-dev libglib2.0-dev && pip install lensfunpy")
+    print("sudo apt-get install liblensfun0 liblensfun-dev libglib2.0-dev && pip install lensfunpy", file=sys.stderr)
     raise
 
 import gi.repository
