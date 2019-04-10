@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/python3
 # rotate-jpeg Copyright (c) 2015 Stuart Pook (http://www.pook.it/)
 # rotate & resize a jpeg file
 #
@@ -20,32 +20,27 @@ import os
 import subprocess
 import sys
 try:
-    import Image
+    from PIL import Image
 except ImportError:
-    print("sudo apt-get install python-pil python-imaging", file=sys.stderr)
+    print("sudo apt-get install python3-pil", file=sys.stderr)
     raise
 import string
 import optparse
-try:
-    import pyexiv2
-except ImportError:
-    print("sudo apt-get install python-pyexiv2", file=sys.stderr)
-    raise
 import collections
 try:
     import piexif
 except ImportError:
-    print("sudo apt install python-piexif", file=sys.stderr)
+    print("sudo apt install python3-piexif", file=sys.stderr)
     raise
 try:
     import cv2
 except ImportError:
-    print("sudo apt-get install python-opencv", file=sys.stderr)
+    print("sudo apt-get install python3-opencv", file=sys.stderr)
     raise
 try:
-    import lensfunpy
+    import lensfun
 except ImportError:
-    print("sudo apt-get install liblensfun0 liblensfun-dev libglib2.0-dev && pip install lensfunpy", file=sys.stderr)
+    print("sudo apt-get install python3-lensfun", file=sys.stderr)
     raise
 
 import gi.repository
@@ -53,7 +48,7 @@ gi.require_version('GExiv2', '0.10')
 try:
 	from gi.repository import GExiv2
 except ImportError:
-    print("sudo apt-get install gir1.2-gexiv2-0.10")
+    print("sudo apt-get install gir1.2-gexiv2-0.10 python3-gi", file=sys.stderr)
     raise
 
 def error(*message):
@@ -66,23 +61,20 @@ def verbose(options, *message):
 
 def update_size(dest, image):
 	# http://stackoverflow.com/questions/400788/resize-image-in-python-without-losing-exif-data
-	dest["Exif.Photo.PixelXDimension"] = image.size[0]
-	dest["Exif.Photo.PixelYDimension"] = image.size[1]
+	dest.set_metadata_pixel_width(image.size[0])
+	dest.set_metadata_pixel_height(image.size[1])
 
 def read_exif_data(image, source_path, options):
-	if pyexiv2.version_info < (0, 3, 2):
-		error("pyexiv2 too old")
-	source = pyexiv2.ImageMetadata(source_path)
-	source.read()
+	source = GExiv2.Metadata(source_path)
 	return source
 
 def copy_exif_data(image, source_path, dest_path, options):
 	source = read_exif_data(image, source_path, options)
-	dest = pyexiv2.ImageMetadata(dest_path)
-	dest.read()
-	source.copy(dest)
+	dest = GExiv2.Metadata(dest_path)
+	for tag in source.get_exif_tags():
+		dest[tag] = source[tag]
 	update_size(dest, image)
-	dest.write()
+	dest.save_file(dest_path)
 
 def shrink(inputfile, options):
 	verbose(options, "shrink", inputfile)
