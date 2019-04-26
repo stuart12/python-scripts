@@ -72,7 +72,10 @@ def copy_exif_data(image, source_path, dest_path, options):
 	source = read_exif_data(image, source_path, options)
 	dest = GExiv2.Metadata(dest_path)
 	for tag in source.get_exif_tags():
-		dest[tag] = source[tag]
+		try:
+			dest[tag] = source[tag]
+		except UnicodeDecodeError:
+			pass
 	update_size(dest, image)
 	dest.save_file(dest_path)
 
