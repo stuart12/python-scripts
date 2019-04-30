@@ -21,7 +21,11 @@ import subprocess
 import tempfile
 import shlex # python 3.3 or later
 import configparser
-import exifread
+try:
+    import exifread
+except ModuleNotFoundError:
+    print("sudo apt install python3-exif")
+    raise
 
 def myname():
 	return os.path.basename(sys.argv[0])
