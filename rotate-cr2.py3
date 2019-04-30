@@ -22,10 +22,10 @@ import tempfile
 import shlex # python 3.3 or later
 import configparser
 try:
-    import exifread
-except ModuleNotFoundError:
-    print("sudo apt install python3-exif")
-    raise
+	import exifread
+except ImportError:
+	print("sudo apt install python3-exif", file=sys.stderr)
+	raise
 
 def myname():
 	return os.path.basename(sys.argv[0])
@@ -73,17 +73,23 @@ def main(argv):
 		if not is_horizontal(cr2):
 			width, height = height, width
 
-	pp3 = options.resizing_pp3
+	pp3 = tempfile.NamedTemporaryFile(mode='w+', suffix='.pp3', delete=True)
+	print("[Resize]", file=pp3)
 	if width and height:
-		pp3 = pp3 % (width, height)
-	with open(pp3) as dummy:
-		pass
+		print("Enabled=true", file=pp3)
+		print("Method=Lanczos", file=pp3)
+		print("AppliesTo=Cropped area", file=pp3)
+		print("Width=%d" % width, file=pp3)
+		print("Height=%d" % height, file=pp3)
+	else:
+		print("Enabled=false", file=pp3)
+	pp3.flush()
 
 	command = [ "rawtherapee-cli", "-Y"]
 	command.append("-j%d" % options.quality)
 	if options.pp3:
 		command.extend(["-p", options.pp3])
-	command.extend(["-p", pp3])
+	command.extend(["-p", pp3.name])
 	command.extend(["-o", options.output])
 	command.extend(["-c", args[0]])
 	stderr = tempfile.TemporaryFile(mode='w+')

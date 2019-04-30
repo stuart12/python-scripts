@@ -99,7 +99,8 @@ def rmdir(src, options):
 
 def unlink(src, options):
     verbose(options, "unlink", src)
-    os.readlink(src)
+    if not options.reflink:
+        os.readlink(src)
     os.unlink(src)
 
 def mkdir(src, options):
@@ -107,9 +108,14 @@ def mkdir(src, options):
     os.mkdir(src)
 
 def symlink(src, dst, options):
-    verbose(options, "ln -s", src, dst)
-    os.symlink(src, dst)
-    os.stat(dst)
+    if options.reflink:
+        cmd = ["cp", "--no-preserve=all", "--reflink=" + options.reflink, src, dst]
+        verbose(options, *cmd)
+        subprocess.check_call(cmd)
+    else:
+        verbose(options, "ln -s", src, dst)
+        os.symlink(src, dst)
+        os.stat(dst)
 
 def read_destination(dst, options):
     try:
@@ -209,10 +215,14 @@ def do_shadow(src, paths, dst, dates, options):
         return False
     existing = set(read_destination(dst, options))
     for image, renamed in links:
+        full_src = os.path.join(src, image)
+        full_dst = os.path.join(dst, renamed)
         if renamed in existing:
             existing.remove(renamed)
+            if os.path.getmtime(full_dst) < os.path.getmtime(full_src):
+                symlink(full_src, full_dst, options)
         else:
-            symlink(os.path.join(src, image), os.path.join(dst, renamed), options)
+            symlink(full_src, full_dst, options)
 
     for bad in existing:
         unlink(os.path.join(dst, bad), options)
@@ -236,6 +246,17 @@ def delete_directory(dst, options):
     finally:
         os.close(fd)
 
+def duplicate_directory(src, dst, options):
+    if options.reflink:
+        os.mkdir(dst)
+        for fn in os.listdir(src):
+            path = os.path.join(src, fn)
+            if os.path.isfile(path):
+                cmd = ["cp", "--no-preserve=all", "--no-clobber", "--reflink=" + options.reflink, path, dst]
+                verbose(options, *cmd)
+                subprocess.check_call(cmd)
+    else:
+         symlink(src, dst, options)
 def shadow(src_dir, dst_dir, options):
     verbose(options, "shadow", src_dir, dst_dir)
     src_dirs = frozenset(os.listdir(src_dir))
@@ -246,8 +267,10 @@ def shadow(src_dir, dst_dir, options):
         dates = dates_if_required(src, paths, options)
         need_symlink = not dates or not do_shadow(src, paths, dst, dates, options)
         if need_symlink and not delete_directory(dst, options):
-            symlink(src, dst, options)
+            duplicate_directory(src, dst, options)
     for fn in frozenset(os.listdir(dst_dir)) - src_dirs:
+        if fn.startswith("."):
+            continue
         path = os.path.join(dst_dir, fn)
         if delete_directory(path, options):
             unlink(path, options)
@@ -256,6 +279,7 @@ def main():
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter,
             description="make a shadow copy respecting the EXIF time order")
 
+    parser.add_argument("-R", "--reflink", default="always", help="cp reflink option [%default]")
     parser.add_argument("-v", "--verbosity", action="count", default=0, help="increase output verbosity")
     parser.add_argument("--tag", default="EXIF DateTimeOriginal", help="EXIF tag for the date")
     parser.add_argument("--same_camera", type=int, default=4, help="same camera if all filenames are the same in this many characters")

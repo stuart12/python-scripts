@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/python3
 # rotate-jpeg Copyright (c) 2015 Stuart Pook (http://www.pook.it/)
 # rotate & resize a jpeg file
 #
@@ -20,32 +20,27 @@ import os
 import subprocess
 import sys
 try:
-    import Image
+    from PIL import Image
 except ImportError:
-    print("sudo apt-get install  python-pil python-imaging")
+    print("sudo apt-get install python3-pil", file=sys.stderr)
     raise
 import string
 import optparse
-try:
-    import pyexiv2
-except ImportError:
-    print("sudo apt-get install python-pyexiv2")
-    raise
 import collections
 try:
     import piexif
 except ImportError:
-    print("sudo apt-get install python-pip &&  pip install piexif")
+    print("sudo apt install python3-piexif", file=sys.stderr)
     raise
 try:
     import cv2
 except ImportError:
-    print("sudo apt-get install python-opencv")
+    print("sudo apt-get install python3-opencv", file=sys.stderr)
     raise
 try:
-    import lensfunpy
+    import lensfun
 except ImportError:
-    print("sudo apt-get install liblensfun0 liblensfun-dev libglib2.0-dev && pip install lensfunpy")
+    print("sudo apt-get install python3-lensfun", file=sys.stderr)
     raise
 
 import gi.repository
@@ -53,7 +48,7 @@ gi.require_version('GExiv2', '0.10')
 try:
 	from gi.repository import GExiv2
 except ImportError:
-    print("sudo apt-get install gir1.2-gexiv2-0.10")
+    print("sudo apt-get install gir1.2-gexiv2-0.10 python3-gi", file=sys.stderr)
     raise
 
 def error(*message):
@@ -66,23 +61,23 @@ def verbose(options, *message):
 
 def update_size(dest, image):
 	# http://stackoverflow.com/questions/400788/resize-image-in-python-without-losing-exif-data
-	dest["Exif.Photo.PixelXDimension"] = image.size[0]
-	dest["Exif.Photo.PixelYDimension"] = image.size[1]
+	dest.set_metadata_pixel_width(image.size[0])
+	dest.set_metadata_pixel_height(image.size[1])
 
 def read_exif_data(image, source_path, options):
-	if pyexiv2.version_info < (0, 3, 2):
-		error("pyexiv2 too old")
-	source = pyexiv2.ImageMetadata(source_path)
-	source.read()
+	source = GExiv2.Metadata(source_path)
 	return source
 
 def copy_exif_data(image, source_path, dest_path, options):
 	source = read_exif_data(image, source_path, options)
-	dest = pyexiv2.ImageMetadata(dest_path)
-	dest.read()
-	source.copy(dest)
+	dest = GExiv2.Metadata(dest_path)
+	for tag in source.get_exif_tags():
+		try:
+			dest[tag] = source[tag]
+		except UnicodeDecodeError:
+			pass
 	update_size(dest, image)
-	dest.write()
+	dest.save_file(dest_path)
 
 def shrink(inputfile, options):
 	verbose(options, "shrink", inputfile)
@@ -94,17 +89,23 @@ def shrink(inputfile, options):
 	if ih and iw and ih > iw:
 		width, height = height, width
 	if not (width and height) or iw <= width * options.size_margin and ih <= height * options.size_margin:
-		if options.no_dimensions_symlink:
-			shutil.copyfile(inputfile, options.output)
+		if options.reflink:
+			subprocess.check_call(["cp", "--reflink=" + options.reflink, inputfile, options.output])
 		else:
-			os.symlink(inputfile, options.output)
+			if options.no_dimensions_symlink:
+				shutil.copyfile(inputfile, options.output)
+			else:
+				os.symlink(inputfile, options.output)
 	else:
 		im.thumbnail((width, height), Image.ANTIALIAS)
 		im.save(options.output, "JPEG", quality=options.quality)
 		copy_exif_data(im, inputfile, options.output, options)
 		if os.path.getsize(options.output) > os.path.getsize(inputfile) * 1.2:
 			os.remove(options.output)
-			os.symlink(inputfile, options.output)
+			if options.reflink:
+				subprocess.check_call(["cp", "--reflink=" + options.reflink, inputfile, options.output])
+			else:
+				os.symlink(inputfile, options.output)
 
 def get_required_exif_data(options, exif):
 	# https://git.gnome.org/browse/gexiv2/tree/GExiv2.py
@@ -195,6 +196,7 @@ def main():
 	parser.add_option("-o", "--output", help="output file name [%default]")
 	parser.add_option("-v", "--verbose", action="store_true", help="verbose")
 	parser.add_option("--resizing_pp3", metavar="DUMMY", help="ignored [%default]")
+	parser.add_option("-R", "--reflink", default="always", help="cp reflink option [%default]")
 	parser.add_option("--no_dimensions_symlink", action="store_true", help="don't make any symlinks even if the dimensions seem ok")
 	parser.add_option("-m", "--size_margin", type='float', default=1.1, help="margin for files almost the same size [%default]")
 	parser.add_option("--ratio_change", type='float', default=0.002, help="maximum accepted ratio change after resize [%default]")

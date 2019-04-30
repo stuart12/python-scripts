@@ -1,5 +1,5 @@
 #!/usr/bin/python3 -B
-# radioinfo Copyright (c) 2017 Stuart Pook (http://www.pook.it/)
+# radioinfo Copyright (c) 2017,2019 Stuart Pook (http://www.pook.it/)
 # Get the URL from the name of a station in http://www.radio-browser.info/webservice
 # set noexpandtab copyindent preserveindent softtabstop=0 shiftwidth=4 tabstop=4
 # This program is free software: you can redistribute it and/or modify it under
@@ -14,16 +14,17 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 import os
 import sys
-import subprocess
+import re
 import radioinfo
-import mpd_playurl
+import argparse
+try:
+    import mpd
+except ImportError:
+    print("sudo apt install python3-mpd", file=sys.stderr)
+    raise
 
 def myname():
     return os.path.basename(sys.argv[0])
-
-import argparse
-import urllib.request
-import json
 
 def verbose(verbosity, level, *message):
     if verbosity >= level:
@@ -37,14 +38,24 @@ def main():
             description="Play RadioInfo station in MPD")
 
     parser.add_argument("-v", "--verbosity", action="count", default=0, help="increase output verbosity")
-    parser.add_argument("--mpc", metavar="command", default="mpc", help="command to run")
-    parser.add_argument("--option", metavar="option", default="--quiet", help="an option for the command to run")
+    parser.add_argument("--mpd", metavar="hostname", default="localhost", help="MPD host to contact")
+    parser.add_argument("--port", metavar="TCP PORT", type=int, default=6600, help="port number of mpd host")
 
     parser.add_argument('station', nargs=argparse.REMAINDER, help='stations to lookup')
 
     options = parser.parse_args()
+
+    player = mpd.MPDClient()
+    player.connect(options.mpd, options.port)
     urls = [radioinfo.geturl(name) for name in options.station]
-    mpd_playurl.playurls(urls, verbosity=options.verbosity)
+    urls = [re.sub(r'^[-A-Za-z0-9+.]*:', lambda pat: pat.group(0).lower(), url) for url in urls]
+    verbose1(options.verbosity, urls)
+
+    player.clear()
+    for url in urls:
+        player.add(url)
+    player.play()
+    player.close()
 
 if __name__ == "__main__":
     main()

@@ -41,7 +41,7 @@ def start_pipe(command, options):
 	verbose(options, quote_command(command))
 	return subprocess.Popen(command, stdout=subprocess.PIPE, universal_newlines=True)
 
-def get_filesystem_partition(fs, options):
+def get_filesystem_disk(fs, options):
 	# https://stackoverflow.com/questions/7718411/determine-device-of-filesystem-in-python
 	res = None
 	dev = os.lstat(fs).st_dev
@@ -55,8 +55,9 @@ def get_filesystem_partition(fs, options):
 					res = line[0]
 			except PermissionError:
 				pass
-	verbose(options, "filesystem %s is on disk %s" % (fs, res))
-	return res
+	disk = res.rstrip("1234567890")
+	verbose(options, "filesystem %s is on disk %s" % (fs, disk))
+	return disk
 
 def get_state(disk, options):
 	cmd = [options.hdparm, "-C", disk]
@@ -138,7 +139,7 @@ def main():
 
 	parser.add_argument("-v", "--verbosity", action="count", default=0, help="increase output verbosity")
 	parser.add_argument("-s", "--stdout", action="store_true", help="messages to stdout")
-	parser.add_argument('--device_type', default="sat,auto", metavar='TYPE', help='device type for smartctl')
+	parser.add_argument('--device_type', default="auto", metavar='TYPE', help='device type for smartctl')
 	parser.add_argument('--hdparm', default="hdparm", metavar='COMMAND', help='hdparm command')
 	parser.add_argument('--extra_fs', default=None, metavar='MOUNTPOINT', help='another filesystem to check')
 	parser.add_argument('--btrfs', default="btrfs", metavar='COMMAND', help='btrfs command')
@@ -153,7 +154,7 @@ def main():
 	parser.add_argument('args', nargs=argparse.REMAINDER, help='arguments ...')
 
 	options = parser.parse_args()
-	disk = get_filesystem_partition(options.filesystem, options)
+	disk = get_filesystem_disk(options.filesystem, options)
 	verbose(options, "disk for %s is %s"  % (options.filesystem, disk))
 	if not os.path.ismount(options.filesystem):
 		error("%s is not a mount point" % options.filesystem)
@@ -168,7 +169,7 @@ def main():
 	verbose(options, "last scrub", last_scrub.isoformat() if last_scrub else "never")
 
 	if options.extra_fs:
-		extra_device = get_filesystem_partition(options.extra_fs, options)
+		extra_device = get_filesystem_disk(options.extra_fs, options)
 		extra_start_state = get_state(extra_device, options)
 		extra_start_temp = get_temperature(extra_device, options)
 

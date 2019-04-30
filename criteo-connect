@@ -1,0 +1,99 @@
+#!/usr/bin/python3 -B
+# use vpnc-connect to create a vpn in a network namespace
+# Copyright (c) 2019 Stuart Pook (http://www.pook.it/)
+# set noexpandtab copyindent preserveindent softtabstop=0 shiftwidth=4 tabstop=4
+# This program is free software: you can redistribute it and/or modify it under
+# the terms of the GNU General Public License as published by the Free Software
+# Foundation, either version 3 of the License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+# FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+import os
+import sys
+import signal
+import argparse
+import getpass
+import subprocess
+import logging
+
+def check(cmd):
+    logging.debug("check_call %s", " ".join(cmd))
+    subprocess.check_call(cmd)
+
+def run(cmd):
+    logging.debug("call %s", " ".join(cmd))
+    subprocess.call(cmd)
+
+def set_forwarding(control_file, value, sudo):
+    logging.debug("setting %s to %s", control_file, value)
+    p = subprocess.Popen([sudo, "tee", control_file], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, universal_newlines=True)
+    p.communicate(input=value + '\n')
+    if p.wait() != 0:
+        logging.fatal("setting %s to %s failed", control_file, value)
+
+def main():
+    parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+            description="open a vpn to criteo")
+
+    parser.set_defaults(loglevel='warn')
+    parser.add_argument("-v", "--verbose", dest='loglevel', action="store_const", const='debug', help="debug loglevel")
+    parser.add_argument("-l", "--loglevel", metavar="LEVEL", help="set logging level")
+    parser.add_argument("--nsname", default="vpn", help="network namespace name")
+    parser.add_argument("--sudo", default="sudo", help="comment to become root")
+    parser.add_argument("--network", default="192.168.42", help="network to use")
+    parser.add_argument("--wan", default="eno1", help="externel network interface")
+    parser.add_argument("--vpn", default="criteo-prod", help="name of vpnc-connect config")
+    parser.add_argument("--forward", default="/proc/sys/net/ipv4/ip_forward", help="file controlling forwarding")
+    parser.add_argument("--delete", action='store_true', help="delete the net namespace before starting")
+
+    parser.add_argument('command', nargs=argparse.REMAINDER, help='command to run')
+
+    options = parser.parse_args()
+    numeric_level = getattr(logging, options.loglevel.upper(), None)
+    logging.basicConfig(level=numeric_level)
+
+# http://hintcafe.net/post/78293519027/running-a-process-inside-a-network-namespace
+# https://unix.stackexchange.com/questions/257510/port-forwarding-to-application-in-network-namespace-with-vpn
+    ns = options.nsname
+    ns0 = ns + ".0"
+    ns1 = ns + ".1"
+    sudo = options.sudo
+    net = options.network + "."
+    wan = options.wan
+    if options.command:
+        run([sudo, "ip", "netns", "exec", ns, "sudo", "-u", getpass.getuser(), "env", "PATH=" + os.getenv("PATH"), *options.command])
+    else:
+        if options.delete:
+            check([sudo, "ip", "netns", "delete", ns])
+            check([sudo, "ip", "link", "delete", ns0])
+        with open(options.forward) as fwd:
+            forwarding = fwd.read().strip()
+        logging.debug("forwarding %s", forwarding)
+        try:
+            check([sudo, "ip", "netns", "add", ns])
+            check([sudo, "ip", "link", "add", ns0, "type", "veth", "peer", ns1])
+            check([sudo, "ip", "link", "set", ns1, "netns", ns])
+            check([sudo, "ifconfig", ns0, net + "1", "netmask", "255.255.255.0", "up" ])
+            check([sudo, "ip", "netns", "exec", ns, "ifconfig", ns1, net + "2", "netmask", "255.255.255.0", "up"])
+            check([sudo, "ip", "netns", "exec", ns, "route", "add", "default", "gw", net + "1"])
+            check([sudo, "iptables", "-t", "nat", "-A", "POSTROUTING", "-s", net + "0/24", "-o", wan, "-j", "MASQUERADE"])
+            if forwarding == "0":
+                set_forwarding(options.forward, "1", sudo)
+            # https://www.ipredator.se/static/downloads/howto/linux_router/ferm.conf
+            signal.signal(signal.SIGINT, signal.SIG_IGN)
+            print("press Control-C to quit")
+            run([sudo, "ip", "netns", "exec", ns, "vpnc-connect", options.vpn])
+            signal.signal(signal.SIGINT, signal.SIG_DFL)
+            check([sudo, "iptables", "-t", "nat", "-D", "POSTROUTING", "-s", net + "0/24", "-o", wan, "-j", "MASQUERADE"])
+            check([sudo, "ip", "netns", "delete", ns])
+            check([sudo, "ip", "link", "delete", ns0])
+        finally:
+            if forwarding == "0":
+                set_forwarding(options.forward, "0", sudo)
+
+if __name__ == "__main__":
+    main()

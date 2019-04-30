@@ -20,7 +20,11 @@ import shlex
 import stat
 import tempfile
 import shutil
-import yaml
+try:
+	import yaml
+except ImportError:
+	print("sudo apt install python3-yaml", file=sys.stderr)
+	raise
 import copy
 import collections
 
@@ -265,8 +269,13 @@ def execute(source_filenames, target_filename, match, exfactory, options):
 		return []
 	command = match['command']
 	if len(command) == 1 and command[0] == "ln" and len(source_filenames) == 1:
-		verbose(options, "ln", source_filenames[0], target_filename)
-		os.symlink(source_filenames[0], target_filename)
+		if options.reflink:
+			cmd = ["cp", "--reflink=" + options.reflink, source_filenames[0], target_filename]
+			verbose(options, *cmd)
+			subprocess.check_call(cmd)
+		else:
+			verbose(options, "ln", "-s", source_filenames[0], target_filename)
+			os.symlink(source_filenames[0], target_filename)
 		return []
 	verbose(options, "run", target_filename, source_filenames)
 	return [exfactory.create(command, outfile=target_filename, infiles=source_filenames)]
@@ -583,6 +592,7 @@ def main(argv):
 	parser.add_option("--check_children", action="store_true", dest="check_children", help="check all children are alive [%default]")
 	parser.add_option("--no_check_children", action="store_false", dest="check_children", help="do not check all children are alive [%default]")
 	parser.add_option("-p", "--tmp_prefix", default="#", help="prefix for temporary files [%default]")
+	parser.add_option("-R", "--reflink", default="always", help="cp reflink option [%default]")
 	#parser.add_option("-t", "--target_dir", default=None, help="target directory")
 	#parser.add_option("-c", "--config", default=None, help="YAML config file")
 	#parser.add_option("-s", "--source_dir", default=None, help="source directory")

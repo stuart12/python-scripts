@@ -1,5 +1,5 @@
 #!/usr/bin/python2.5 -u
-# transform Copyright (c) 2012, 2013 Stuart Pook (http://www.pook.it/)
+# transform Copyright (c) 2012, 2013, 2018 Stuart Pook (http://www.pook.it/)
 # transform all the files in a directory using a set of rules
 #
 # This program is free software: you can redistribute it and/or modify it under
@@ -12,8 +12,6 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
-# must work with python 2.5
 
 # should remove empty directories
 
@@ -224,11 +222,17 @@ def transformer(in_files, out_files, mapping, options):
 							source = infile
 						else:
 							raise
-						os.symlink(source, outfile)
-						if options.verbose:
-							print "ln -s", pipes.quote(source), pipes.quote(outfile)
-						with file(outfile) as f:
-							pass
+						if options.reflink:
+							cmd = ["cp", "--reflink=" + options.reflink, source, outfile]
+							subprocess.check_call(cmd)
+							if options.verbose:
+								print " ".join(pipes.quote(c) for c in cmd)
+						else:
+							os.symlink(source, outfile)
+							if options.verbose:
+								print "ln -s", pipes.quote(source), pipes.quote(outfile)
+							with file(outfile) as f:
+								pass
 					linked += 1
 
 	execute_tasks(tasks, map, options, directory_cache, linked)
@@ -278,6 +282,7 @@ def main(argv):
 	parser.disable_interspersed_args()	
 	parser.add_option("-v", "--verbose", action="store_true", help="verbose messages")
 	parser.add_option("-n", "--dryrun", action="store_true", help="dryrun")
+	parser.add_option("-r", "--reflink", default="always", help="reflink value or symlink")
 	parser.add_option("-i", "--interactive", action="store_true", help="interactive mode")
 	parser.add_option("-l", "--list", action="store_true", help="read list from stdin")
 	parser.add_option("-D", "--delete", action="store_true", help="delete old files")
