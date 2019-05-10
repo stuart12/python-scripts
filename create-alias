@@ -128,15 +128,25 @@ def main():
     parser.add_argument("-v", "--verbose", action='count')
     parser.add_argument("--machine1", default="shiva", help="connection string for first machine")
     parser.add_argument("--command1", default="scripts/create-alias.py", help="command on first machine")
-    parser.add_argument("--machine2", default="email-aliases", help="connection string for second machine")
-    parser.add_argument("--command2", default=None, help="command on second machine")
+    parser.add_argument("--machine", default="email-aliases", help="connection string for second machine")
+    parser.add_argument("--command", default=None, help="command on second machine")
     parser.add_argument("--domain", default="pook.it", help="domain")
     parser.add_argument("--backup", default=os.path.expanduser("~/var/email-aliases.cache"), metavar="FILE", help="file to backup aliases")
     parser.add_argument("alias", nargs='?', default=None, help="alias to add")
 
     args = parser.parse_args()
     logging.basicConfig(level=args.verbose)
-    run([ [args.machine2, args.command2], [args.machine2, args.command2] ], args.alias, args.domain, args.backup)
+
+    cmd = ['ssh', '-n', args.machine ]
+    if args.command:
+        cmd.append(args.command)
+
+    cmd.extend(['--domain', args.domain])
+    if args.alias:
+        cmd.extend(['--create', args.alias])
+
+    subprocess.call(cmd)
+    #run([ [args.machine2, args.command2], [args.machine2, args.command2] ], args.alias, args.domain, args.backup)
 
 if __name__ == '__main__':
     main()
