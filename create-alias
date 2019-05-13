@@ -76,9 +76,12 @@ def main():
     parser.add_argument("-v", "--verbose", dest='loglevel', action="store_const", const='debug', help="debug loglevel")
     parser.add_argument("-l", "--loglevel", default='warn', metavar="LEVEL", help="set logging level")
     parser.add_argument("--sshoptions", default="Tnax", help="options for ssh")
-    parser.add_argument("--machine", default="email-aliases", help="connection string for second machine")
-    parser.add_argument("--domain", default="pook.it", help="domain")
-    parser.add_argument("--backup", default=os.path.expanduser("~/var/email-aliases.cache"), metavar="FILE", help="file to backup aliases")
+    parser.add_argument("--machine", default="email-aliases", help="hostname for remote host")
+    parser.add_argument("--domain", default="pook.it", help="domain to be appended to aliases")
+    parser.add_argument("--backup",
+            default=os.environ.get('CREATE_ALIAS_BACKUP', os.path.expanduser("~/var/email-aliases.cache")),
+            metavar="FILE",
+            help="file to backup aliases")
     parser.add_argument("alias", nargs='?', default=None, help="alias to add")
 
     args = parser.parse_args()
