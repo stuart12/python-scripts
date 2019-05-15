@@ -19,18 +19,19 @@ def myname():
     return os.path.basename(sys.argv[0])
 
 import argparse
-import subprocess
 import collections
 try:
     import podcastparser
 except ModuleNotFoundError:
     print(myname() + ": on debian: apt-get install python3-podcastparser", file=sys.stderr)
     raise
-import time
 import tempfile
-import datetime
 import urllib.request
-import mpd_playurl
+try:
+    import mpd
+except ImportError:
+    print("sudo apt install python3-mpd", file=sys.stderr)
+    raise
 
 def verbose(options, level, *message):
     if options.verbosity >= level:
@@ -54,8 +55,10 @@ def scan(feedurl, played, options):
                     verbose(options, 2, p)
     return podcasts
 
-def play(playable, played, options):
-    mpd_playurl.playurls([playable.url], verbosity=options.verbosity)
+def play(playable, played, player, options):
+    player.add(playable.url)
+    player.play()
+    #mpd_playurl.playurls([playable.url], verbosity=options.verbosity)
     print(playable.guid, file=played)
     played.flush()
 
@@ -73,17 +76,14 @@ def main():
             description="play the most recent podcast")
 
     parser.add_argument("-v", "--verbosity", "--verbose", action="count", default=0, help="increase output verbosity")
-    parser.add_argument("--min_play_time", metavar="SECONDS", type=int, default=9,
-            help="minimum to consider a podcast played")
-    parser.add_argument("--player", metavar="COMMAND", default="videolan", help="command to play a url")
-    parser.add_argument("--player_option", metavar="OPTION", default="--play-and-exit", help="option for command to play a url")
-    parser.add_argument("--datefmt", metavar="STRFTIME", default="%d/%m/%Y", help="strftime format for dates")
     parser.add_argument("--cache", metavar="DIRECTORY", default=os.path.expanduser("~/.cache/playnewestpod"),
             help="stock list of played podcasts")
     parser.add_argument("--config", metavar="DIRECTORY", default=os.path.expanduser("~/.config/playnewestpod"),
             help="stock list of url podcasts")
     parser.add_argument('-a', "--add", action="store_true", help="add podcast urls to list")
     parser.add_argument("--loop", action="store_true", help="play all podcasts")
+    parser.add_argument("--mpd", metavar="hostname", default="localhost", help="MPD host to contact")
+    parser.add_argument("--port", metavar="TCP PORT", type=int, default=6600, help="port number of mpd host")
 
     parser.add_argument('urls', nargs=argparse.REMAINDER, help='feeds to play')
 
@@ -94,6 +94,8 @@ def main():
             for url in options.urls:
                 print(url, file=out)
     else:
+        player = mpd.MPDClient()
+        player.connect(options.mpd, options.port)
         with get_cache(options) as played:
             played.seek(0)
             already_played = frozenset(line.strip() for line in played)
@@ -106,8 +108,9 @@ def main():
                     for pod in pods:
                         playables.extend(scan(pod.strip(), already_played, options))
             playables.sort(key=lambda x: -x.date)
+            player.clear()
             for playable in playables:
-                play(playable, played, options)
+                play(playable, played, player, options)
                 if not options.loop:
                     break
 
