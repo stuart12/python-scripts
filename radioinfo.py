@@ -30,22 +30,22 @@ def verbose1(verbosity, *message):
     verbose(verbosity, 1, *message)
 
 
-def getid(name, base, verbosity):
+def getid(name, base, read_bytes, verbosity):
     url = base + urllib.parse.quote(name)
     verbose1(verbosity, url)
     with urllib.request.urlopen(url) as f:
-        id = int(json.loads(f.read(3000).decode('utf8'))[0]['id'])
+        id = int(json.loads(f.read(read_bytes).decode('utf8'))[0]['id'])
         verbose1(verbosity, "id", id)
         return id
 
 default_search = "http://www.radio-browser.info/webservice/json/stations/bynameexact/"
 default_lookup = "http://www.radio-browser.info/webservice/v2/json/url/"
 
-def geturl(name, base = default_search, lookup = default_lookup, verbosity = 0):
-    url = "%s%d" % (lookup, getid(name, base, verbosity))
+def geturl(name, base = default_search, lookup = default_lookup, read_bytes=10000, verbosity = 0):
+    url = "%s%d" % (lookup, getid(name, base, read_bytes, verbosity))
     verbose1(verbosity, url)
     with urllib.request.urlopen(url) as f:
-        return json.loads(f.read(3000).decode('utf8'))['url']
+        return json.loads(f.read(read_bytes).decode('utf8'))['url']
 
 def main():
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter,
@@ -54,13 +54,14 @@ def main():
     parser.add_argument("-v", "--verbosity", action="count", default=0, help="increase output verbosity")
     parser.add_argument("--search", metavar="URL", default=default_search, help="search URL")
     parser.add_argument("--lookup", metavar="URL", default=default_lookup, help="lookup URL")
+    parser.add_argument("--read", metavar="BYTES", default=32000, type=int, help="size of read for result")
 
     parser.add_argument('names', nargs=argparse.REMAINDER, help='stations to lookup')
 
     options = parser.parse_args()
     for name in options.names:
         verbose1(options.verbosity, "name:", name)
-        print(geturl(name, options.search, options.lookup, options.verbosity))
+        print(geturl(name, options.search, options.lookup, options.read, options.verbosity))
 
 if __name__ == "__main__":
     main()
