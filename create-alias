@@ -27,7 +27,7 @@ def myname():
 
 def add_alias(cmd, domain):
     logging.debug("run %s", ' '.join([shlex.quote(c) for c in cmd]))
-    with subprocess.Popen(cmd, stdin=subprocess.devnull) as p:
+    with subprocess.Popen(cmd, stdout=subprocess.PIPE, stdin=subprocess.DEVNULL) as p:
         for line in p.stdout:
             fields = line.split(':')
             print("%s@%s : %s" % fields[0].strip(), domain, fields[1].strip())
