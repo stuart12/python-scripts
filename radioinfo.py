@@ -45,7 +45,14 @@ def geturl(name, base = default_search, lookup = default_lookup, read_bytes=1000
     url = "%s%d" % (lookup, getid(name, base, read_bytes, verbosity))
     verbose1(verbosity, url)
     with urllib.request.urlopen(url) as f:
-        return json.loads(f.read(read_bytes).decode('utf8'))['url']
+        answer = json.loads(f.read(read_bytes).decode('utf8'))
+        if answer['ok'] != "true":
+            sys.exit("%s: \"%s\" lookup failed: %s" % (myname(), name, answer['message']))
+        try:
+            return answer['url']
+        except KeyError as ex:
+            sys.exit("%s: for \"%s\" no url in %s" % (myname, name, answer))
+
 
 def main():
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter,
