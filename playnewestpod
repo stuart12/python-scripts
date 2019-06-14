@@ -57,6 +57,7 @@ def scan(feedurl, played, options):
                     p = PlayAble(date, guid, enclosure['url'], feedurl, channel, episode['title'])
                     podcasts.append(p)
                     verbose(options, 2, p)
+                    break
     return podcasts
 
 def play(playable, played, player, options):
