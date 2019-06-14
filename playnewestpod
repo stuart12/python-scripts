@@ -87,6 +87,7 @@ def main():
             help="stock list of url podcasts")
     parser.add_argument('-a', "--add", action="store_true", help="add podcast urls to list")
     parser.add_argument("--loop", action="store_true", help="play all podcasts")
+    parser.add_argument('-n', "--dryrun", action="store_true", help="dryrun")
     parser.add_argument("--mpd", metavar="hostname", default="localhost", help="MPD host to contact")
     parser.add_argument("--port", metavar="TCP PORT", type=int, default=6600, help="port number of mpd host")
 
@@ -99,8 +100,6 @@ def main():
             for url in options.urls:
                 print(url, file=out)
     else:
-        player = mpd.MPDClient()
-        player.connect(options.mpd, options.port)
         with get_cache(options) as played:
             played.seek(0)
             already_played = frozenset(line.strip() for line in played)
@@ -113,11 +112,16 @@ def main():
                     for pod in pods:
                         playables.extend(scan(pod.strip(), already_played, options))
             playables.sort(key=lambda x: -x.date)
-            player.clear()
-            for playable in playables:
-                play(playable, played, player, options)
-                if not options.loop:
-                    break
+            if options.dryrun:
+                print("\n".join([c.channel + ': ' + c.title for c in playables]))
+            else:
+                player = mpd.MPDClient()
+                player.connect(options.mpd, options.port)
+                player.clear()
+                for playable in playables:
+                    play(playable, played, player, options)
+                    if not options.loop:
+                        break
 
 if __name__ == "__main__":
     main()
