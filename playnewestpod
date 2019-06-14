@@ -42,7 +42,11 @@ PlayAble = collections.namedtuple('PlayAble', ['date', 'guid', 'url', 'feed', 'c
 def scan(feedurl, played, options):
     verbose(options, 1, "scanning", feedurl)
     podcasts = []
-    parsed = podcastparser.parse(feedurl, urllib.request.urlopen(feedurl))
+    try:
+        parsed = podcastparser.parse(feedurl, urllib.request.urlopen(feedurl))
+    except urllib.error.HTTPError as ex:
+        verbose(options, 1, "urllib.error.HTTPError", feedurl, ex)
+        return podcasts
     channel = parsed['title']
     for episode in parsed['episodes']:
         guid = episode['guid']
