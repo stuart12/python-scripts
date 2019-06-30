@@ -30,7 +30,7 @@ def add_alias(cmd, domain):
     with subprocess.Popen(cmd, text=True, stdout=subprocess.PIPE, stdin=subprocess.DEVNULL) as p:
         for line in p.stdout:
             fields = line.split(':')
-            print("%s@%s : %s" % fields[0].strip(), domain, fields[1].strip())
+            print(f"{fields[0].strip()}@{domain} : {fields[1].strip()}")
         sys.exit(p.wait())
 
 def read_aliases(stream):
