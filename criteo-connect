@@ -59,8 +59,8 @@ def main():
 # http://hintcafe.net/post/78293519027/running-a-process-inside-a-network-namespace
 # https://unix.stackexchange.com/questions/257510/port-forwarding-to-application-in-network-namespace-with-vpn
     ns = options.nsname
-    ns0 = ns + ".0"
-    ns1 = ns + ".1"
+    ns0 = ns + "x0"
+    ns1 = ns + "x1"
     sudo = options.sudo
     net = options.network + "."
     wan = options.wan
