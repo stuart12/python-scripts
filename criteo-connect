@@ -81,8 +81,7 @@ def main():
             check([sudo, "ip", "link", "set", ns1, "netns", ns])
             check([sudo, "ifconfig", ns0, net + "1", "netmask", "255.255.255.0", "up" ])
             check([sudo, "ip", "netns", "exec", ns, "ifconfig", ns1, net + "2", "netmask", "255.255.255.0", "up"])
-            #check([sudo, "ip", "netns", "exec", ns, "ifconfig", "lo", "inet", "127.0.0.1", "up"])
-            check([sudo, "ip", "netns", "exec", ns, "ifconfig", "lo", "up"])
+            check([sudo, "ip", "netns", "exec", ns, "ip", "link", "set", "lo", "up"])
             check([sudo, "ip", "netns", "exec", ns, "route", "add", "default", "gw", net + "1"])
             check([sudo, "iptables", "-t", "nat", "-A", "POSTROUTING", "-s", net + "0/24", "-o", wan, "-j", "MASQUERADE"])
             if forwarding == "0":
