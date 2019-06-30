@@ -84,6 +84,8 @@ def main():
             check([sudo, "ip", "netns", "exec", ns, "ip", "link", "set", "lo", "up"])
             check([sudo, "ip", "netns", "exec", ns, "route", "add", "default", "gw", net + "1"])
             check([sudo, "iptables", "-t", "nat", "-A", "POSTROUTING", "-s", net + "0/24", "-o", wan, "-j", "MASQUERADE"])
+            check([sudo, "iptables", "-A", "INPUT", "--in-interface", ns0, "--jump", "ACCEPT"])
+            check([sudo, "iptables", "-A", "FORWARD", "--in-interface", ns0, "--jump", "ACCEPT"])
             if forwarding == "0":
                 set_forwarding(options.forward, "1", sudo)
             # https://www.ipredator.se/static/downloads/howto/linux_router/ferm.conf
@@ -92,6 +94,8 @@ def main():
             run([sudo, "ip", "netns", "exec", ns, "vpnc-connect", options.vpn])
             signal.signal(signal.SIGINT, signal.SIG_DFL)
             check([sudo, "iptables", "-t", "nat", "-D", "POSTROUTING", "-s", net + "0/24", "-o", wan, "-j", "MASQUERADE"])
+            check([sudo, "iptables", "-D", "INPUT", "--in-interface", ns0, "--jump", "ACCEPT"])
+            check([sudo, "iptables", "-D", "FORWARD", "--in-interface", ns0, "--jump", "ACCEPT"])
             check([sudo, "ip", "netns", "delete", ns])
             check([sudo, "ip", "link", "delete", ns0])
         finally:
