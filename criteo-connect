@@ -42,7 +42,7 @@ def main():
     parser.set_defaults(loglevel='warn')
     parser.add_argument("-v", "--verbose", dest='loglevel', action="store_const", const='debug', help="debug loglevel")
     parser.add_argument("-l", "--loglevel", metavar="LEVEL", help="set logging level")
-    parser.add_argument("--nsname", default="vpn", help="network namespace name")
+    parser.add_argument("--nsname", default="namespacevpn", help="network namespace name")
     parser.add_argument("--sudo", default="sudo", help="comment to become root")
     parser.add_argument("--network", default="192.168.42", help="network to use")
     parser.add_argument("--wan", default="eno1", help="externel network interface")
