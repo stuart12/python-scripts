@@ -74,6 +74,8 @@ def main():
             forwarding = fwd.read().strip()
         logging.debug("forwarding %s", forwarding)
         try:
+            check([sudo, "mkdir", "--m=0755", "--parents", os.path.join("/etc/netns", ns)])
+            check([sudo, "cp", "/etc/resolv.conf", os.path.join("/etc/netns", ns, "resolv.conf")])
             check([sudo, "ip", "netns", "add", ns])
             check([sudo, "ip", "link", "add", ns0, "type", "veth", "peer", ns1])
             check([sudo, "ip", "link", "set", ns1, "netns", ns])
