@@ -46,9 +46,10 @@ def main():
     parser.add_argument("--sudo", default="sudo", help="comment to become root")
     parser.add_argument("--network", default="192.168.42", help="network to use")
     parser.add_argument("--wan", default="eno1", help="externel network interface")
-    parser.add_argument("--vpn", default="criteo-prod", help="name of vpnc-connect config")
+    parser.add_argument("--config", default="criteo-prod", help="name of vpnc-connect config")
     parser.add_argument("--forward", default="/proc/sys/net/ipv4/ip_forward", help="file controlling forwarding")
-    parser.add_argument("--delete", action='store_true', help="delete the net namespace before starting")
+    #parser.add_argument("-D", "--delete", action='store_true', help="delete the net namespace before starting")
+    parser.add_argument("--dryrun", action='store_true', help="start bash not vpnc-connect")
 
     parser.add_argument('command', nargs=argparse.REMAINDER, help='command to run')
 
@@ -91,7 +92,14 @@ def main():
             # https://www.ipredator.se/static/downloads/howto/linux_router/ferm.conf
             signal.signal(signal.SIGINT, signal.SIG_IGN)
             print("press Control-C to quit")
-            run([sudo, "ip", "netns", "exec", ns, "vpnc-connect", options.vpn])
+            if options.dryrun:
+                script = ["bash"]
+            else:
+                if numeric_level == logging.DEBUG:
+                    script = ["/bin/sh", "-xc", f"vpnc-connect --script '/bin/sh -x /usr/share/vpnc-scripts/vpnc-script' {options.config}"]
+                else:
+                    script = ["vpnc-connect", options.config]
+            run([sudo, "ip", "netns", "exec", ns] + script)
             signal.signal(signal.SIGINT, signal.SIG_DFL)
             check([sudo, "iptables", "-t", "nat", "-D", "POSTROUTING", "-s", net + "0/24", "-o", wan, "-j", "MASQUERADE"])
             check([sudo, "iptables", "-D", "INPUT", "--in-interface", ns0, "--jump", "ACCEPT"])
