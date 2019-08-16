@@ -66,7 +66,10 @@ def main():
     net = options.network + "."
     wan = options.wan
     if options.command:
-        run([sudo, "ip", "netns", "exec", ns, "sudo", "-u", getpass.getuser(), "env", "PATH=" + os.getenv("PATH"), *options.command])
+        run([sudo, "--preserve-env", "ip", "netns", "exec", ns, "sudo", "--preserve-env", "-u", getpass.getuser(), "env",
+            "TMPDIR=" + os.getenv("TMPDIR"),
+            "PATH=" + os.getenv("PATH"),
+            *options.command])
     else:
         if os.path.exists(os.path.join('/var/run/netns', ns)):
             check([sudo, "ip", "netns", "delete", ns])
