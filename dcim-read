@@ -27,7 +27,7 @@ def myname():
     return os.path.basename(sys.argv[0])
 
 def error(*mess):
-    logging.error(*mess)
+    logging.fatal(*mess)
     sys.exit(1)
 
 def do_mount(dev, label, umount=False):
@@ -54,17 +54,18 @@ def read_photos_dir(directory, prefix, record, seen, destination, file_mode):
     for entry in os.listdir(directory):
         match = re.match(r"..._(\d\d\d\d)\.(...)", entry)
         if not match:
-            error("bad entry %s in %s", entry, directory)
-        path = os.path.join(directory, entry)
-        photo = prefix + match.group(1)
-        if photo not in record:
-            photo_type = match.group(2).lower()
-            to = os.path.join(destination, photo + "." + photo_type)
-            if photo_type == "jpg":
-                jpegs.append([path, photo, destination, photo_type, seen])
-            else:
-                read_photo(path, photo, destination, photo_type, seen, file_mode)
-                record.add(photo)
+            logging.error("skipping bad entry %s in %s", entry, directory)
+        else:
+            path = os.path.join(directory, entry)
+            photo = prefix + match.group(1)
+            if photo not in record:
+                photo_type = match.group(2).lower()
+                to = os.path.join(destination, photo + "." + photo_type)
+                if photo_type == "jpg":
+                    jpegs.append([path, photo, destination, photo_type, seen])
+                else:
+                    read_photo(path, photo, destination, photo_type, seen, file_mode)
+                    record.add(photo)
     for path, photo, destination, photo_type, seen in jpegs:
         if photo not in record:
             read_photo(path, photo, destination, photo_type, seen, file_mode)
