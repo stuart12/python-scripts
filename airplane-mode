@@ -1,0 +1,62 @@
+#!/usr/bin/python3
+# airplane-mode Copyright (C) 2020 Stuart Pook (http://www.pook.it/)
+# put a rooted Android 9 (Pie) device into airplane mode using adb
+#
+# This program is free software: you can redistribute it and/or modify it under
+# the terms of the GNU General Public License as published by the Free Software
+# Foundation, either version 3 of the License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+# FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+import argparse
+import subprocess
+import shlex
+import logging
+import sys
+
+# https://chuonglepham.wordpress.com/2017/10/06/android-flight-airplane-mode/
+def run(airplane, serial):
+    c = int(airplane) 
+    cmds = [
+        f"settings put global airplane_mode_on {c}",
+        f"am broadcast -a android.intent.action.AIRPLANE_MODE --ez state {c}",
+    ]
+    remote = " && ".join(cmds)
+    cmd = ["adb"]
+    if serial:
+        cmd += ['-s', serial]
+    cmd += ["shell", "su", "-c", shlex.quote(remote)]
+    logging.info("%s", remote)
+    fmt_cmd =  " ".join(shlex.quote(c) for c in cmd)
+    logging.info("%s", fmt_cmd)
+    stdout = None if logging.getLogger().isEnabledFor(logging.DEBUG) else subprocess.DEVNULL 
+    if subprocess.call(cmd, stdout=stdout):
+        logging.critical("cmd failed %s", fmt_cmd)
+        sys.exit(1)
+
+def main():
+    parser = argparse.ArgumentParser(allow_abbrev=False,
+            description="set airplane mode on a rooted Android device",
+            formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser.set_defaults(loglevel='warn')
+    parser.add_argument("-s", "--serial", metavar="SERIAL_NUMBER", default=None, help="serial numer of Android device")
+    parser.add_argument("-l", "--loglevel", metavar="LEVEL", help="set logging level")
+    parser.add_argument("-v", "--verbose", dest='loglevel', action='store_const', const='debug', help='set log level to debug')
+    parser.add_argument("-o", "--off", "--normal", action="store_true", help="switch airplane mode off")
+
+    args = parser.parse_args()
+    loglevel = args.loglevel
+    numeric_level = getattr(logging, loglevel.upper(), None)
+    if not isinstance(numeric_level, int):
+        raise ValueError('Invalid log level: %s' % loglevel)
+    logging.basicConfig(level=numeric_level)
+
+    run(not args.off, args.serial)
+
+if __name__ == '__main__':
+    main()
