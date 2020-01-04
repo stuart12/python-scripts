@@ -47,7 +47,8 @@ def main():
     parser.add_argument("-s", "--serial", metavar="SERIAL_NUMBER", default=None, help="serial numer of Android device")
     parser.add_argument("-l", "--loglevel", metavar="LEVEL", help="set logging level")
     parser.add_argument("-v", "--verbose", dest='loglevel', action='store_const', const='debug', help='set log level to debug')
-    parser.add_argument("-o", "--off", "--normal", action="store_true", help="switch airplane mode off")
+    parser.add_argument("-o", "--off", "--normal", "--noisy", action="store_true", help="switch airplane mode off")
+    parser.add_argument("--on", "--quiet", action='store_true', dest="dummy", help="ignored but recommended")
 
     args = parser.parse_args()
     loglevel = args.loglevel
