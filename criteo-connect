@@ -35,6 +35,15 @@ def set_forwarding(control_file, value, sudo):
     if p.wait() != 0:
         logging.fatal("setting %s to %s failed", control_file, value)
 
+def setup_dns(ns, sudo, dns):
+    with open("/etc/resolv.conf") as fp:
+        nameservers = [line.split()[1] for line in fp for f in (line.split(), ) if len(f) == 2 and f[0] == 'nameserver'][:2] + [dns]
+    lines = [f"nameserver {n}\n" for n in nameservers]
+    contents = "".join(lines)
+    cmd = [sudo, "tee", os.path.join("/etc/netns", ns, "resolv.conf")]
+    logging.debug(f"call echo {' '.join(nameservers)} | {' '.join(cmd)}")
+    subprocess.run(cmd, input=contents, text=True, stdout=subprocess.DEVNULL).check_returncode()
+
 def main():
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter,
             description="open a vpn to criteo")
@@ -47,6 +56,7 @@ def main():
     parser.add_argument("--network", default="192.168.42", help="network to use")
     parser.add_argument("--wan", default="eno1", help="externel network interface")
     parser.add_argument("--config", default="criteo-prod", help="name of vpnc-connect config")
+    parser.add_argument("--dns", default='10.239.248.1', help="DNS server to use for VPN")
     parser.add_argument("--forward", default="/proc/sys/net/ipv4/ip_forward", help="file controlling forwarding")
     #parser.add_argument("-D", "--delete", action='store_true', help="delete the net namespace before starting")
     parser.add_argument("--dryrun", action='store_true', help="start bash not vpnc-connect")
@@ -79,7 +89,7 @@ def main():
         logging.debug("forwarding %s", forwarding)
         try:
             check([sudo, "mkdir", "--m=0755", "--parents", os.path.join("/etc/netns", ns)])
-            check([sudo, "cp", "/etc/resolv.conf", os.path.join("/etc/netns", ns, "resolv.conf")])
+            setup_dns(ns, sudo, options.dns)
             check([sudo, "ip", "netns", "add", ns])
             check([sudo, "ip", "link", "add", ns0, "type", "veth", "peer", ns1])
             check([sudo, "ip", "link", "set", ns1, "netns", ns])
