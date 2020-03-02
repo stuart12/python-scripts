@@ -71,7 +71,7 @@ def main():
             "PATH=" + os.getenv("PATH"),
             *options.command])
     else:
-        if os.path.exists(os.path.join('/var/run/netns', ns)):
+        if subprocess.run([sudo, 'test', '-f', os.path.join('/var/run/netns', ns)]).returncode == 0:
             check([sudo, "ip", "netns", "delete", ns])
             check([sudo, "ip", "link", "delete", ns0])
         with open(options.forward) as fwd:
