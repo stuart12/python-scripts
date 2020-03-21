@@ -1,0 +1,170 @@
+#!/usr/bin/python3 -B
+# windows10 Stuart Pook (s.pook@criteo.com)
+# Install and run Windows 10 in kvm from the image provied by Criteo
+# https://confluence.criteois.com/pages/viewpage.action?pageId=424984048
+
+# When you create the VM there is no need to set the network as they explain in Confleunce.
+# The defaults from DHCP are correct.
+
+# if you are using btrfs disable copy on write: chattr +C .
+
+import sys
+import argparse
+import logging
+import subprocess
+import grp
+import pwd
+import shlex
+import getpass
+import ipaddress
+import os.path
+import os
+try:
+    import psutil
+except:
+    print("sudo apt install python3-psutil", file=os.stderr)
+    raise
+
+def fatal(*args):
+    logging.fatal(*args)
+    sys.exit(1)
+
+def mk_serial():
+    user = getpass.getuser()
+    if user == "s.pook":
+        r = 'ead' + 'C0de'
+    else:
+        v = 0
+        for u in user:
+            if u == '.':
+                n = 0
+            else:
+                n = ord(u) - ord('a') + 1
+            v = v * 27 + n
+        r = "%xfead" % v
+    return r.upper()
+
+def make_disk(directory, serial, disksz, cdrom, confluence):
+    disk = os.path.join(directory, serial + ".qcow2")
+    if not os.path.exists(disk):
+        if not os.path.exists(cdrom):
+            fatal("download the installation image into %s from %s", cdrom, confluence)
+        subprocess.check_call(["qemu-img", "create", "-f", "qcow2", disk, "%dG" % disksz])
+        logging.warning("do not change the Network Settings in the VM, just use DHCP")
+    return disk
+
+def run(build_dir, ip, ram, smp, hostbus, hostport, disksz, confluence, usbhost, vendor, product, monitor, usb_controller, *, cdrom,
+        nic,
+        serial, ip_mask, dryrun):
+    disk = make_disk(build_dir, serial, disksz, cdrom, confluence)
+    cmd = [ "qemu-system-x86_64" ]
+    cmd.extend(["-m", f"{ram}M"])
+    cmd.extend(["-enable-kvm"])
+    cmd.extend(["-machine", "q35,accel=kvm"])
+    cmd.extend(["-device", "intel-iommu"])
+    cmd.extend(["-device", "virtio-balloon"]) # https://access.redhat.com/articles/2470791
+    cmd.extend(["-cpu", "host,hv_relaxed,hv_spinlocks=0x1fff,hv_vapic,hv_time"])
+    cores = psutil.cpu_count(logical=False)
+    threads = int(psutil.cpu_count() / cores)
+    cmd.extend(["-smp", f"cpus={smp},threads={threads},cores={cores}"])
+    if os.path.exists(cdrom):
+        cmd.extend(["-cdrom", cdrom])
+    cmd.extend(["-drive", f"if=virtio,file={disk}"])
+    # cmd.extend(["-drive", f"if=virtio,file=fake.qcow2"])
+    cmd.extend(["-boot", "order=cd"])
+
+    id = "windows"
+    user = getpass.getuser()
+    net = ipaddress.IPv4Network(f"{ip}/{ip_mask}", strict=False).with_netmask
+    netdev = ",".join([f"user,id={id},net={net},dhcpstart={ip},hostname={user.replace('.', '_')}-windows"] +
+        [f"hostfwd=tcp:127.0.0.1:{local}-:{remote}" for local, remote in [[10022, 22], [8000, 8000]]])
+    cmd.extend([
+        "-device", f"virtio-net,netdev={id}",
+        "-netdev", netdev])
+
+    #cmd.extend(["-nic", f"user,id={id},model={nic},hostfwd=tcp:127.0.0.1:10022-:22"])
+    cmd.extend(["-rtc", "clock=host,base=localtime"]) # https://heiko-sieger.info/running-windows-10-on-linux-using-kvm-with-vga-passthrough/
+    cmd.extend(["-serial", "none"]) # https://heiko-sieger.info/running-windows-10-on-linux-using-kvm-with-vga-passthrough/
+    cmd.extend(["-parallel", "none"]) # https://heiko-sieger.info/running-windows-10-on-linux-using-kvm-with-vga-passthrough/
+    cmd.extend(["-smbios", f"type=1,serial={serial}"]) # https://www.undrground.org/2011/01/14/bios-serial-number-and-kvm/
+    if usb_controller:
+        cmd.extend(["-device", usb_controller])
+        cmd.extend(["-device", "usb-tablet"])
+    if hostbus >= 0 and hostport >= 0:
+        # https://unix.stackexchange.com/questions/452934/can-i-pass-through-a-usb-port-via-qemu-command-line
+        cmd.extend(["-usb", "-device", "usb-host,hostbus=%d,hostport=%d" % (hostbus, hostport)])
+
+    if usbhost:
+        # https://unix.stackexchange.com/questions/250938/qemu-usb-passthrough-windows-guest
+        cmd.extend(["-usb", "-device", "usb-host,%s" % usbhost])
+    if vendor and product:
+        # https://wiki.archlinux.org/index.php/QEMU#Pass-through_host_USB_device
+        cmd.extend(["-usb", "-device", "usb-host,vendorid=0x%x,productid=0x%x" % (vendor, product)])
+
+    if monitor:
+        # cmd.extend(["-monitor", "stdio"])
+        # logging.info("device_add usb-host,vendorid=0x18d1,productid=0x4ee7")
+        # logging.info("device_add usb-host,vendorid=0x0fce,productid=0xadde")
+        # logging.info("system_powerdown")
+        cmd.extend(["-monitor", f"telnet:127.0.0.1:{monitor},server,nowait"])
+
+    logging.info("command %s", " ".join(shlex.quote(c) for c in cmd))
+    if not dryrun:
+        subprocess.check_call(cmd)
+
+def main():
+    parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+            description="run Criteo Windows")
+
+    confluence = "https://confluence.criteois.com/pages/viewpage.action?pageId=424984048"
+    parser.set_defaults(loglevel='info')
+    parser.add_argument("-v", "--verbose", dest='loglevel', action="store_const", const='debug', help="debug loglevel")
+    parser.add_argument("-l", "--loglevel", metavar="LEVEL", help="set logging level")
+    parser.add_argument("--confluence", metavar="URL", default=confluence, help="web page for instructions")
+    parser.add_argument("--ip", metavar="IP_ADDRESS", default="172.31.2.78", help="IP address for VM")
+    parser.add_argument("--mask", metavar="IP_MASK", default="255.255.255.192", help="IP mask for VM")
+    #parser.add_argument("--delay", metavar="SECONDS", type=float, default=59, help="time between reads")
+    parser.add_argument('-p', "--percentage_ram", metavar="%", type=float, default=70, help="percentage of RAM to allocate to VM")
+    parser.add_argument("--ram", metavar="MB", type=int, default=None, help="RAM to allocate to VM")
+    parser.add_argument("--disk_size", metavar="GB", type=int, default=115, help="maximum disk size for VM")
+    parser.add_argument("--smp", metavar="COUNT", type=int, default=len(os.sched_getaffinity(0)), help="CPUs to allocate to VM")
+    parser.add_argument("--hostbus", metavar="BUS_NUMBER", type=int, default=-1, help="if >= 0,USB host bus to pass")
+    parser.add_argument("--hostport", metavar="PORT_NUMBER", type=int, default=2, help="if >= 0,USB host port to pass")
+    parser.add_argument("--usbhost", metavar="vendor:product", default=None, help="export this USB device to VM")
+    parser.add_argument("--vendor", metavar="HEX", type=lambda x: int(x, 0), default=None, help="export this USB device to VM")
+    parser.add_argument("--product", metavar="HEX", default=0xadde, type=lambda x: int(x, 0), help="export this USB device to VM")
+    parser.add_argument("--serial", metavar="HEX", default=mk_serial(), help="the serial number for the VM")
+    #parser.add_argument("-a", "--address", type=lambda x: int(x, 0), metavar="ADDRESS", help="IC2 bus address")
+    parser.add_argument("--monitor", type=int, default=10001, help="qemu monitor port [0 to disable]")
+    parser.add_argument("-n", "--dryrun", action="store_true", help="just print command")
+    parser.add_argument("-b", "--build", default=os.path.expanduser("~/ws/criteo-scratch/WindowsWorkstation"), help="where to find disk images")
+    parser.add_argument("-c", "--cdrom", default=os.path.expanduser("~/ws/criteo-scratch/WindowsWorkstation/CriteoBootMedia.iso"), help="CDROM")
+    parser.add_argument("--nic", default="virtio", help="use e1000 before install drivers")
+    parser.add_argument("-u", "--usb_controller", default="usb-ehci,id=ehci", help="activate a USB controller")
+    # https://github.com/qemu/qemu/blob/master/docs/usb2.txt
+    parser.add_argument("-1", "--usb1", dest="usb_controller", action="store_const", const="piix3-usb-uhci,id=uhci", help="activate an USB1.1 controller")
+    parser.add_argument("-3", "--usb3", dest="usb_controller", action="store_const", const="nec-usb-xhci,id=xhci", help="activate an USB3 controller")
+    parser.add_argument("-2", "--usb2", dest="usb_controller", action="store_const", const="usb-ehci,id=ehci", help="activate an USB2 controller")
+
+    options = parser.parse_args()
+
+    numeric_level = getattr(logging, options.loglevel.upper(), None)
+    if not isinstance(numeric_level, int):
+        sys.exit('Invalid log level: %s' % options.loglevel)
+    logging.basicConfig(level=numeric_level)
+
+    ram = options.ram if (options.ram is not None) else int(options.percentage_ram * os.sysconf('SC_PAGE_SIZE') * os.sysconf('SC_PHYS_PAGES') / (100 * 1024. ** 2))
+
+    run(options.build, options.ip, ram, options.smp, options.hostbus, options.hostport, options.disk_size, options.confluence, options.usbhost,
+            options.vendor,
+            options.product,
+            options.monitor,
+            options.usb_controller,
+            cdrom=options.cdrom,
+            nic=options.nic,
+            dryrun=options.dryrun,
+            serial=options.serial,
+            ip_mask=options.mask)
+
+if __name__ == "__main__":
+    main()
