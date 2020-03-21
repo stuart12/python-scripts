@@ -24,9 +24,9 @@ def check(cmd):
     logging.debug("check_call %s", " ".join(cmd))
     subprocess.check_call(cmd)
 
-def run(cmd):
+def run(cmd, **kargs):
     logging.debug("call %s", " ".join(cmd))
-    subprocess.call(cmd)
+    subprocess.call(cmd, **kargs)
 
 def set_forwarding(control_file, value, sudo):
     logging.debug("setting %s to %s", control_file, value)
@@ -78,10 +78,15 @@ def main():
     wan = options.wan
     iptables = options.iptables
     if options.command:
-        run([sudo, "--preserve-env", "ip", "netns", "exec", ns, "sudo", "--preserve-env", "-u", getpass.getuser(), "env",
-            "TMPDIR=" + os.getenv("TMPDIR"),
-            "PATH=" + os.getenv("PATH"),
-            *options.command])
+        nenv=os.environ.copy()
+        for key, value in os.environ.items():
+            if value == 'ibus':
+                nenv[key] = 'xim' # https://github.com/netblue30/firejail/issues/116
+        run([sudo, "--preserve-env", "ip", "netns", "exec", ns,
+            "sudo", "--preserve-env", "-u", getpass.getuser(),
+            'env', "TMPDIR=" + os.getenv("TMPDIR"), "PATH=" + os.getenv("PATH"),
+            *options.command],
+            env=nenv)
     else:
         if subprocess.run([sudo, 'test', '-f', os.path.join('/var/run/netns', ns)]).returncode == 0:
             check([sudo, "ip", "netns", "delete", ns])
