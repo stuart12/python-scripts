@@ -38,9 +38,9 @@ except ImportError:
     print("sudo apt-get install python3-opencv", file=sys.stderr)
     raise
 try:
-    import lensfun
+    import lensfunpy
 except ImportError:
-    print("sudo apt-get install python3-lensfun", file=sys.stderr)
+    print("pip ....", file=sys.stderr)
     raise
 
 import gi.repository
@@ -77,7 +77,11 @@ def copy_exif_data(image, source_path, dest_path, options):
 		except UnicodeDecodeError:
 			pass
 	update_size(dest, image)
-	dest.save_file(dest_path)
+	try:
+		dest.save_file(dest_path)
+	except gi.repository.GLib.Error:
+		dest.clear_exif() # old img* files
+		dest.save_file(dest_path)
 
 def shrink(inputfile, options):
 	verbose(options, "shrink", inputfile)
