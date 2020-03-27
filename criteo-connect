@@ -30,19 +30,27 @@ def run(cmd, **kargs):
 
 def set_forwarding(control_file, value, sudo):
     logging.debug("setting %s to %s", control_file, value)
-    p = subprocess.Popen([sudo, "tee", control_file], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, universal_newlines=True)
-    p.communicate(input=value + '\n')
-    if p.wait() != 0:
-        logging.fatal("setting %s to %s failed", control_file, value)
+    with open(control_file, "w") as fp:
+        fp.write(value + '\n')
 
-def setup_dns(ns, sudo, dns):
+def mkdir(d):
+    if not os.path.exists(d):
+        logging.debug(f"mkdir {d}")
+        os.umask(0o22)
+        os.mkdir(d)
+
+def setup_dns(ns, dns):
     with open("/etc/resolv.conf") as fp:
         nameservers = [line.split()[1] for line in fp for f in (line.split(), ) if len(f) == 2 and f[0] == 'nameserver'][:2] + [dns]
-    lines = [f"nameserver {n}\n" for n in nameservers]
-    contents = "".join(lines)
-    cmd = [sudo, "tee", os.path.join("/etc/netns", ns, "resolv.conf")]
-    logging.debug(f"call echo {' '.join(nameservers)} | {' '.join(cmd)}")
-    subprocess.run(cmd, input=contents, text=True, stdout=subprocess.DEVNULL).check_returncode()
+    netns = "/etc/netns"
+    directory = os.path.join("/etc/netns", ns)
+    dest = os.path.join(directory, "resolv.conf")
+    logging.debug(f"write nameservers {' '.join(nameservers)} to {dest}")
+    mkdir(netns)
+    mkdir(directory)
+    with open(dest, "w") as fp:
+        for line in [f"nameserver {n}\n" for n in nameservers]:
+            fp.write(line + "\n")
 
 def default_interface():
     routes = "/proc/net/route"
@@ -83,42 +91,34 @@ def main():
     ns = options.nsname
     ns0 = ns + "x0"
     ns1 = ns + "x1"
-    sudo = options.sudo
     net = options.network + "."
     wan = options.wan
     iptables = options.iptables
-    if options.command:
-        command = options.command[1:] if options.command[0] == '--' else options.command
+    command = options.command[1:] if len(options.command) > 1 and options.command[0] == '--' else options.command
+    if command:
         logging.debug("command: %s", command)
-        nenv=os.environ.copy()
-        for key, value in os.environ.items():
-            if value == 'ibus':
-                nenv[key] = 'xim' # https://github.com/netblue30/firejail/issues/116
-        run([sudo, "--preserve-env", "ip", "netns", "exec", ns,
-            "sudo", "--preserve-env", "-u", getpass.getuser(),
-            'env', "TMPDIR=" + os.getenv("TMPDIR"), "PATH=" + os.getenv("PATH"),
-            *command],
-            env=nenv)
+        run(["ip", "netns", "exec", ns,
+            "sudo", "-u", os.getenv('SUDO_USER'),
+            *command])
     else:
-        if subprocess.run([sudo, 'test', '-f', os.path.join('/var/run/netns', ns)]).returncode == 0:
-            check([sudo, "ip", "netns", "delete", ns])
-            check([sudo, "ip", "link", "delete", ns0])
+        if subprocess.run(['test', '-f', os.path.join('/var/run/netns', ns)]).returncode == 0:
+            check(["ip", "netns", "delete", ns])
+            check(["ip", "link", "delete", ns0])
         with open(options.forward) as fwd:
             forwarding = fwd.read().strip()
         logging.debug("forwarding %s", forwarding)
         try:
-            check([sudo, "mkdir", "--m=0755", "--parents", os.path.join("/etc/netns", ns)])
-            setup_dns(ns, sudo, options.dns)
-            check([sudo, "ip", "netns", "add", ns])
-            check([sudo, "ip", "link", "add", ns0, "type", "veth", "peer", ns1])
-            check([sudo, "ip", "link", "set", ns1, "netns", ns])
-            check([sudo, "ifconfig", ns0, net + "1", "netmask", "255.255.255.0", "up" ])
-            check([sudo, "ip", "netns", "exec", ns, "ifconfig", ns1, net + "2", "netmask", "255.255.255.0", "up"])
-            check([sudo, "ip", "netns", "exec", ns, "ip", "link", "set", "lo", "up"])
-            check([sudo, "ip", "netns", "exec", ns, "route", "add", "default", "gw", net + "1"])
-            check([sudo, iptables, "-t", "nat", "-A", "POSTROUTING", "-s", net + "0/24", "-o", wan, "-j", "MASQUERADE"])
-            check([sudo, iptables, "-A", "INPUT", "--in-interface", ns0, "--jump", "ACCEPT"])
-            check([sudo, iptables, "-A", "FORWARD", "--in-interface", ns0, "--jump", "ACCEPT"])
+            setup_dns(ns, options.dns)
+            check(["ip", "netns", "add", ns])
+            check(["ip", "link", "add", ns0, "type", "veth", "peer", ns1])
+            check(["ip", "link", "set", ns1, "netns", ns])
+            check(["ifconfig", ns0, net + "1", "netmask", "255.255.255.0", "up" ])
+            check(["ip", "netns", "exec", ns, "ifconfig", ns1, net + "2", "netmask", "255.255.255.0", "up"])
+            check(["ip", "netns", "exec", ns, "ip", "link", "set", "lo", "up"])
+            check(["ip", "netns", "exec", ns, "route", "add", "default", "gw", net + "1"])
+            check([iptables, "-t", "nat", "-A", "POSTROUTING", "-s", net + "0/24", "-o", wan, "-j", "MASQUERADE"])
+            check([iptables, "-A", "INPUT", "--in-interface", ns0, "--jump", "ACCEPT"])
+            check([iptables, "-A", "FORWARD", "--in-interface", ns0, "--jump", "ACCEPT"])
             if forwarding == "0":
                 set_forwarding(options.forward, "1", sudo)
             # https://www.ipredator.se/static/downloads/howto/linux_router/ferm.conf
@@ -131,13 +131,13 @@ def main():
                     script = ["/bin/sh", "-xc", f"vpnc-connect --script '/bin/sh -x /usr/share/vpnc-scripts/vpnc-script' {options.config}"]
                 else:
                     script = ["vpnc-connect", options.config]
-            run([sudo, "ip", "netns", "exec", ns] + script)
+            run(["ip", "netns", "exec", ns] + script)
             signal.signal(signal.SIGINT, signal.SIG_DFL)
-            check([sudo, iptables, "-t", "nat", "-D", "POSTROUTING", "-s", net + "0/24", "-o", wan, "-j", "MASQUERADE"])
-            check([sudo, iptables, "-D", "INPUT", "--in-interface", ns0, "--jump", "ACCEPT"])
-            check([sudo, iptables, "-D", "FORWARD", "--in-interface", ns0, "--jump", "ACCEPT"])
-            check([sudo, "ip", "netns", "delete", ns])
-            check([sudo, "ip", "link", "delete", ns0])
+            check([iptables, "-t", "nat", "-D", "POSTROUTING", "-s", net + "0/24", "-o", wan, "-j", "MASQUERADE"])
+            check([iptables, "-D", "INPUT", "--in-interface", ns0, "--jump", "ACCEPT"])
+            check([iptables, "-D", "FORWARD", "--in-interface", ns0, "--jump", "ACCEPT"])
+            check(["ip", "netns", "delete", ns])
+            check(["ip", "link", "delete", ns0])
         finally:
             if forwarding == "0":
                 set_forwarding(options.forward, "0", sudo)
