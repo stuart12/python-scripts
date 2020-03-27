@@ -88,6 +88,8 @@ def main():
     wan = options.wan
     iptables = options.iptables
     if options.command:
+        command = options.command[1:] if options.command[0] == '--' else options.command
+        logging.debug("command: %s", command)
         nenv=os.environ.copy()
         for key, value in os.environ.items():
             if value == 'ibus':
@@ -95,7 +97,7 @@ def main():
         run([sudo, "--preserve-env", "ip", "netns", "exec", ns,
             "sudo", "--preserve-env", "-u", getpass.getuser(),
             'env', "TMPDIR=" + os.getenv("TMPDIR"), "PATH=" + os.getenv("PATH"),
-            *options.command],
+            *command],
             env=nenv)
     else:
         if subprocess.run([sudo, 'test', '-f', os.path.join('/var/run/netns', ns)]).returncode == 0:
