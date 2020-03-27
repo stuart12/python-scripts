@@ -44,6 +44,16 @@ def setup_dns(ns, sudo, dns):
     logging.debug(f"call echo {' '.join(nameservers)} | {' '.join(cmd)}")
     subprocess.run(cmd, input=contents, text=True, stdout=subprocess.DEVNULL).check_returncode()
 
+def default_interface():
+    routes = "/proc/net/route"
+    with open(routes) as fp:
+        for line in fp:
+            fields = line.split()
+            if len(fields) > 2 and fields[1] == "00000000":
+                return fields[0]
+    logging.fatal(f"no default route found in {routes}")
+    sys.exit(1)
+
 def main():
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter,
             description="open a vpn to criteo")
@@ -54,7 +64,7 @@ def main():
     parser.add_argument("--nsname", default="namespacevpn", help="network namespace name")
     parser.add_argument("--sudo", default="sudo", help="comment to become root")
     parser.add_argument("--network", default="192.168.42", help="network to use")
-    parser.add_argument("--wan", default="eno1", help="externel network interface")
+    parser.add_argument("--wan", default=default_interface(), help="externel network interface")
     parser.add_argument("--config", default="criteo-prod", help="name of vpnc-connect config")
     parser.add_argument("--dns", default='10.239.248.1', help="DNS server to use for VPN")
     parser.add_argument("--forward", default="/proc/sys/net/ipv4/ip_forward", help="file controlling forwarding")
