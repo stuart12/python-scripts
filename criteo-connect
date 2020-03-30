@@ -27,7 +27,7 @@ def run(cmd, **kargs):
     logging.debug("call %s", " ".join(cmd))
     subprocess.call(cmd, **kargs)
 
-def set_forwarding(control_file, value, sudo):
+def set_forwarding(control_file, value):
     logging.debug("setting %s to %s", control_file, value)
     with open(control_file, "w") as fp:
         fp.write(value + '\n')
@@ -119,7 +119,7 @@ def main():
             check([iptables, "-A", "INPUT", "--in-interface", ns0, "--jump", "ACCEPT"])
             check([iptables, "-A", "FORWARD", "--in-interface", ns0, "--jump", "ACCEPT"])
             if forwarding == "0":
-                set_forwarding(options.forward, "1", sudo)
+                set_forwarding(options.forward, "1")
             # https://www.ipredator.se/static/downloads/howto/linux_router/ferm.conf
             signal.signal(signal.SIGINT, signal.SIG_IGN)
             print("press Control-C to quit")
@@ -139,7 +139,7 @@ def main():
             check(["ip", "link", "delete", ns0])
         finally:
             if forwarding == "0":
-                set_forwarding(options.forward, "0", sudo)
+                set_forwarding(options.forward, "0")
 
 if __name__ == "__main__":
     main()
