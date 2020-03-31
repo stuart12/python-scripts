@@ -72,6 +72,53 @@ def run_in_ns(ns, command):
         sys.exit(6)
     sys.exit('should not arrive here')
 
+def setup_ns(ns, forward, dns, network, def_wan, config, dryrun, iptables):
+    ns0 = ns + "x0"
+    ns1 = ns + "x1"
+    if os.path.exists(os.path.join('/var/run/netns', ns)):
+        check(["ip", "netns", "delete", ns])
+        check(["ip", "link", "delete", ns0])
+    with open(forward) as fwd:
+        forwarding = fwd.read().strip()
+        logging.debug("forwarding %s", forwarding)
+    wan = def_wan if def_wan else default_interface()
+    logging.debug("external interface %s", wan)
+    net = network + "."
+    try:
+        setup_dns(ns, dns)
+        check(["ip", "netns", "add", ns])
+        check(["ip", "link", "add", ns0, "type", "veth", "peer", ns1])
+        check(["ip", "link", "set", ns1, "netns", ns])
+        check(["ifconfig", ns0, net + "1", "netmask", "255.255.255.0", "up" ])
+        check(["ip", "netns", "exec", ns, "ifconfig", ns1, net + "2", "netmask", "255.255.255.0", "up"])
+        check(["ip", "netns", "exec", ns, "ip", "link", "set", "lo", "up"])
+        check(["ip", "netns", "exec", ns, "route", "add", "default", "gw", net + "1"])
+        check([iptables, "-t", "nat", "-A", "POSTROUTING", "-s", net + "0/24", "-o", wan, "-j", "MASQUERADE"])
+        check([iptables, "-A", "INPUT", "--in-interface", ns0, "--jump", "ACCEPT"])
+        check([iptables, "-A", "FORWARD", "--in-interface", ns0, "--jump", "ACCEPT"])
+        if forwarding == "0":
+            set_forwarding(options.forward, "1")
+        # https://www.ipredator.se/static/downloads/howto/linux_router/ferm.conf
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
+        print("press Control-C to quit")
+        if dryrun:
+            script = ["bash"]
+        else:
+            if logging.root.level <= logging.DEBUG:
+                script = ["/bin/sh", "-xc", f"vpnc-connect --script '/bin/sh -x /usr/share/vpnc-scripts/vpnc-script' {config}"]
+            else:
+                script = ["vpnc-connect", config]
+        run(["ip", "netns", "exec", ns] + script)
+        signal.signal(signal.SIGINT, signal.SIG_DFL)
+        check([iptables, "-t", "nat", "-D", "POSTROUTING", "-s", net + "0/24", "-o", wan, "-j", "MASQUERADE"])
+        check([iptables, "-D", "INPUT", "--in-interface", ns0, "--jump", "ACCEPT"])
+        check([iptables, "-D", "FORWARD", "--in-interface", ns0, "--jump", "ACCEPT"])
+        check(["ip", "netns", "delete", ns])
+        check(["ip", "link", "delete", ns0])
+    finally:
+        if forwarding == "0":
+            set_forwarding(forward, "0")
+
 def main():
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter,
             description="open a vpn to criteo")
@@ -102,53 +149,16 @@ def main():
     command = options.command[1:] if len(options.command) > 1 and options.command[0] == '--' else options.command
     if command:
         run_in_ns(ns, command)
-    else:
-        ns0 = ns + "x0"
-        ns1 = ns + "x1"
-        if os.path.exists(os.path.join('/var/run/netns', ns)):
-            check(["ip", "netns", "delete", ns])
-            check(["ip", "link", "delete", ns0])
-        with open(options.forward) as fwd:
-            forwarding = fwd.read().strip()
-            logging.debug("forwarding %s", forwarding)
-        wan = options.wan if options.wan else default_interface()
-        logging.debug("external interface %s", wan)
-        net = options.network + "."
-        iptables = options.iptables
-        try:
-            setup_dns(ns, options.dns)
-            check(["ip", "netns", "add", ns])
-            check(["ip", "link", "add", ns0, "type", "veth", "peer", ns1])
-            check(["ip", "link", "set", ns1, "netns", ns])
-            check(["ifconfig", ns0, net + "1", "netmask", "255.255.255.0", "up" ])
-            check(["ip", "netns", "exec", ns, "ifconfig", ns1, net + "2", "netmask", "255.255.255.0", "up"])
-            check(["ip", "netns", "exec", ns, "ip", "link", "set", "lo", "up"])
-            check(["ip", "netns", "exec", ns, "route", "add", "default", "gw", net + "1"])
-            check([iptables, "-t", "nat", "-A", "POSTROUTING", "-s", net + "0/24", "-o", wan, "-j", "MASQUERADE"])
-            check([iptables, "-A", "INPUT", "--in-interface", ns0, "--jump", "ACCEPT"])
-            check([iptables, "-A", "FORWARD", "--in-interface", ns0, "--jump", "ACCEPT"])
-            if forwarding == "0":
-                set_forwarding(options.forward, "1")
-            # https://www.ipredator.se/static/downloads/howto/linux_router/ferm.conf
-            signal.signal(signal.SIGINT, signal.SIG_IGN)
-            print("press Control-C to quit")
-            if options.dryrun:
-                script = ["bash"]
-            else:
-                if numeric_level == logging.DEBUG:
-                    script = ["/bin/sh", "-xc", f"vpnc-connect --script '/bin/sh -x /usr/share/vpnc-scripts/vpnc-script' {options.config}"]
-                else:
-                    script = ["vpnc-connect", options.config]
-            run(["ip", "netns", "exec", ns] + script)
-            signal.signal(signal.SIGINT, signal.SIG_DFL)
-            check([iptables, "-t", "nat", "-D", "POSTROUTING", "-s", net + "0/24", "-o", wan, "-j", "MASQUERADE"])
-            check([iptables, "-D", "INPUT", "--in-interface", ns0, "--jump", "ACCEPT"])
-            check([iptables, "-D", "FORWARD", "--in-interface", ns0, "--jump", "ACCEPT"])
-            check(["ip", "netns", "delete", ns])
-            check(["ip", "link", "delete", ns0])
-        finally:
-            if forwarding == "0":
-                set_forwarding(options.forward, "0")
+
+    setup_ns(
+        ns=ns,
+        forward=options.forward,
+        dns=options.dns,
+        network=options.network,
+        def_wan=options.wan,
+        config=options.config,
+        iptables=options.iptables,
+        dryrun=options.dryrun)
 
 if __name__ == "__main__":
     main()
