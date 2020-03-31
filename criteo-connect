@@ -57,7 +57,7 @@ def default_interface():
 
 def run_in_ns(ns, command):
     logging.debug("command: %s", command)
-    fcmd = ["ip", "netns", "exec", ns, "sudo", "-u", os.getenv('SUDO_USER'), *command]
+    fcmd = ["ip", "netns", "exec", ns, "runuser", "-u", os.getenv('SUDO_USER'), '--', *command]
     logging.debug("about to execvp: %s", fcmd)
     try:
         os.execvp(fcmd[0], fcmd)
