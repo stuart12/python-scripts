@@ -61,6 +61,17 @@ def default_interface():
     logging.fatal(f"no default route found in {routes}")
     sys.exit(1)
 
+def run_in_ns(ns, command):
+    logging.debug("command: %s", command)
+    fcmd = ["ip", "netns", "exec", ns, "sudo", "-u", os.getenv('SUDO_USER'), *command]
+    logging.debug("about to execvp: %s", fcmd)
+    try:
+        os.execvp(fcmd[0], fcmd)
+    except ex as OSError:
+        logging.error("failed to run user command %s in namespace: %s", fcmd[0], ex)
+        sys.exit(6)
+    sys.exit('should not arrive here')
+
 def main():
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter,
             description="open a vpn to criteo")
@@ -90,10 +101,7 @@ def main():
     ns = options.nsname
     command = options.command[1:] if len(options.command) > 1 and options.command[0] == '--' else options.command
     if command:
-        logging.debug("command: %s", command)
-        run(["ip", "netns", "exec", ns,
-            "sudo", "-u", os.getenv('SUDO_USER'),
-            *command])
+        run_in_ns(ns, command)
     else:
         ns0 = ns + "x0"
         ns1 = ns + "x1"
