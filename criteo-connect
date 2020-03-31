@@ -18,6 +18,7 @@ import argparse
 import getpass
 import subprocess
 import logging
+import shutil
 
 def check(cmd):
     logging.debug("check_call %s", " ".join(cmd))
@@ -38,18 +39,11 @@ def mkdir(d):
         os.umask(0o22)
         os.mkdir(d)
 
-def setup_dns(ns, dns):
-    with open("/etc/resolv.conf") as fp:
-        nameservers = [line.split()[1] for line in fp for f in (line.split(), ) if len(f) == 2 and f[0] == 'nameserver'][:2] + [dns]
-    netns = "/etc/netns"
-    directory = os.path.join("/etc/netns", ns)
-    dest = os.path.join(directory, "resolv.conf")
-    logging.debug(f"write nameservers {' '.join(nameservers)} to {dest}")
-    mkdir(netns)
-    mkdir(directory)
-    with open(dest, "w") as fp:
-        for line in [f"nameserver {n}\n" for n in nameservers]:
-            fp.write(line + "\n")
+def setup_dns(ns):
+    src = "/etc/resolv.conf"
+    dest = os.path.join("/etc/netns", ns, "resolv.conf")
+    logging.debug(f"shutil.copy({src}, {dest}")
+    shutil.copy(src, dest)
 
 def default_interface():
     routes = "/proc/net/route"
@@ -85,7 +79,7 @@ def setup_ns(ns, forward, dns, network, def_wan, config, dryrun, iptables):
     logging.debug("external interface %s", wan)
     net = network + "."
     try:
-        setup_dns(ns, dns)
+        setup_dns(ns)
         check(["ip", "netns", "add", ns])
         check(["ip", "link", "add", ns0, "type", "veth", "peer", ns1])
         check(["ip", "link", "set", ns1, "netns", ns])
@@ -104,10 +98,8 @@ def setup_ns(ns, forward, dns, network, def_wan, config, dryrun, iptables):
         if dryrun:
             script = ["bash"]
         else:
-            if logging.root.level <= logging.DEBUG:
-                script = ["/bin/sh", "-xc", f"vpnc-connect --script '/bin/sh -x /usr/share/vpnc-scripts/vpnc-script' {config}"]
-            else:
-                script = ["vpnc-connect", config]
+            debug = 'x' if logging.root.level <= logging.DEBUG else ''
+            script = ["/bin/sh", f"-{debug}c", f"vpnc-connect --script '/usr/bin/env INTERNAL_IP4_DNS={dns} /bin/sh -{debug} /usr/share/vpnc-scripts/vpnc-script' {config}"]
         run(["ip", "netns", "exec", ns] + script)
         signal.signal(signal.SIGINT, signal.SIG_DFL)
         check([iptables, "-t", "nat", "-D", "POSTROUTING", "-s", net + "0/24", "-o", wan, "-j", "MASQUERADE"])
