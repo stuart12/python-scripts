@@ -30,8 +30,12 @@ def run(cmd, **kargs):
 
 def set_forwarding(control_file, value):
     logging.debug("setting %s to %s", control_file, value)
-    with open(control_file, "w") as fp:
-        fp.write(value + '\n')
+    try:
+        with open(control_file, "w") as fp:
+            fp.write(value + '\n')
+    except PermissionError as ex:
+        logging.fatal("failed to open %s (%s), did you forget sudo?", control_file, ex.strerror)
+        sys.exit(7)
 
 def mkdir(d):
     if not os.path.exists(d):
