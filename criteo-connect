@@ -91,7 +91,7 @@ def setup_ns(ns, forward, dns, network, def_wan, config, dryrun, iptables):
         check([iptables, "-A", "INPUT", "--in-interface", ns0, "--jump", "ACCEPT"])
         check([iptables, "-A", "FORWARD", "--in-interface", ns0, "--jump", "ACCEPT"])
         if forwarding == "0":
-            set_forwarding(options.forward, "1")
+            set_forwarding(forward, "1")
         # https://www.ipredator.se/static/downloads/howto/linux_router/ferm.conf
         signal.signal(signal.SIGINT, signal.SIG_IGN)
         print("press Control-C to quit")
