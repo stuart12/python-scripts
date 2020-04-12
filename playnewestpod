@@ -1,5 +1,5 @@
 #!/usr/bin/python3 -B
-# playnewestpod Copyright (c) 2015 Stuart Pook (http://www.pook.it/)
+# playnewestpod Copyright (c) 2020 Stuart Pook (http://www.pook.it/)
 # play the most recent podcast from a feed url
 # set noexpandtab copyindent preserveindent softtabstop=0 shiftwidth=4 tabstop=4
 # This program is free software: you can redistribute it and/or modify it under
@@ -88,6 +88,7 @@ def main():
     parser.add_argument('-a', "--add", action="store_true", help="add podcast urls to list")
     parser.add_argument("--loop", action="store_true", help="play all podcasts")
     parser.add_argument('-n', "--dryrun", action="store_true", help="dryrun")
+    parser.add_argument("--show", action="store_true", help="print podcast channel & title before playing")
     parser.add_argument("--mpd", metavar="hostname", default="localhost", help="MPD host to contact")
     parser.add_argument("--port", metavar="TCP PORT", type=int, default=6600, help="port number of mpd host")
 
@@ -119,6 +120,8 @@ def main():
                 player.connect(options.mpd, options.port)
                 player.clear()
                 for playable in playables:
+                    if options.show:
+                        print(f"{playable.channel}: {playable.title}")
                     play(playable, played, player, options)
                     if not options.loop:
                         break
