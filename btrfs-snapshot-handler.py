@@ -118,6 +118,9 @@ def clean_snapshots(directory, prefix, keep, days, options):
     return check_call([options.btrfs, "subvolume", "delete", *to_delete], options)
 
 def snapshot(src, dst_dir, prefix, keep, days, options):
+    if not os.path.exists(dst_dir):
+        if not check_call([options.btrfs, "subvolume", "create", dst_dir], options):
+            return False
     dst = os.path.join(dst_dir, prefix + options.timestamp)
     if not check_call([options.btrfs, "subvolume", "snapshot", "-r", src, dst], options):
         return False
