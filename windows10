@@ -22,8 +22,8 @@ import os
 try:
     import psutil
 except:
-    print("sudo apt install python3-psutil", file=os.stderr)
-    raise
+    logging.fatal("sudo apt install python3-psutil")
+    sys.exit(5)
 
 def fatal(*args):
     logging.fatal(*args)
