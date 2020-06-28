@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 # -*- coding: utf-8 -*-
-# own_contacts Copyright (C) 2011-2014, 2017,2020  Stuart Pook (http://www.pook.it/)
+# ring Copyright (C) 2011-2014, 2017,2020  Stuart Pook (http://www.pook.it/)
 # This program is free software: you can redistribute it and/or modify it under
 # the terms of the GNU General Public License as published by the Free Software
 # Foundation, either version 3 of the License, or (at your option) any later version.
@@ -13,13 +13,13 @@
 # with no options just look for a contact as given in the arguments
 
 # show all the fred's in the contact list on your owncloud server
-#	own_contacts fred
+#	ring fred
 
 # print a short list of important contacts formatted using groff
-#	own_contacts -p | lp
+#	ring -p | lp
 
 # print a longer list of important and medium contacts
-#	own_contacts -P | lp
+#	ring -P | lp
 
 # The printed output is formated for A4 paper.
 
