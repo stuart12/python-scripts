@@ -32,10 +32,12 @@ def myname():
 
 def is_horizontal(cr2):
 	with open(cr2, 'rb') as img:
-		field = 'Image Orientation'
-		data = exifread.process_file(img, stop_tag=field, details=True)
-		orientation = data[field].printable
-		return orientation.lower().startswith("horizontal")
+		data = exifread.process_file(img, details=True)
+		for field in ['Image Orientation', 'Camera Orientation', 'Orientation']:
+			d = data.get(field)
+			if d:
+				return d.printable.lower().startswith("horizontal")
+		return True
 
 def main(argv):
 	parser = optparse.OptionParser(usage="usage: %prog [--help] [options] source_dir target_dir")
@@ -83,6 +85,8 @@ def main(argv):
 		print("Height=%d" % height, file=pp3)
 	else:
 		print("Enabled=false", file=pp3)
+	print("[LensProfile]",  file=pp3)
+	print("LcMode=lfauto",  file=pp3)
 	pp3.flush()
 
 	command = [ "rawtherapee-cli", "-Y"]
