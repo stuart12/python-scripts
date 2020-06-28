@@ -19,29 +19,30 @@ from __future__ import print_function
 import os
 import subprocess
 import sys
+
+def import_failed(pkg):
+	print("import failed, do: sudo apt-get install python3-pil", file=sys.stderr)
+	sys.exit(87)
+
 try:
     from PIL import Image
 except ImportError:
-    print("sudo apt-get install python3-pil", file=sys.stderr)
-    raise
+	import_failed("python3-pil")
 import string
 import optparse
 import collections
 try:
     import piexif
 except ImportError:
-    print("sudo apt install python3-piexif", file=sys.stderr)
-    raise
+    import_failed("python3-piexif")
 try:
     import cv2
 except ImportError:
-    print("sudo apt-get install python3-opencv", file=sys.stderr)
-    raise
+    import_failed("python3-opencv")
 try:
-    import lensfunpy
+    import lensfun
 except ImportError:
-    print("pip ....", file=sys.stderr)
-    raise
+    import_failed("python3-lensfun")
 
 import gi.repository
 gi.require_version('GExiv2', '0.10')
@@ -157,7 +158,7 @@ def undistort(inputfile, options):
 	if required_info is None:
 		return shrink(inputfile, options)
 
-	db = lensfunpy.Database()
+	db = lensfun.get_core_database()
 	cam = db.find_cameras(required_info.camera_maker, required_info.camera_model)[0]
 	lens = db.find_lenses(cam)[0]
 
@@ -172,7 +173,7 @@ def undistort(inputfile, options):
 	width = owidth if owidth else iw
 	height = oheight if oheight else ih
 
-	mod = lensfunpy.Modifier(lens, cam.crop_factor, iw, ih)
+	mod = lensfun.Modifier(lens, cam.crop_factor, iw, ih)
 	mod.initialize(required_info.focal_length, required_info.aperture, required_info.subject_distance)
 
 	undistCoords = mod.apply_geometry_distortion()
