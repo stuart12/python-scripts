@@ -1,6 +1,6 @@
-#!/usr/bin/python
+#!/usr/bin/python3
 # -*- coding: utf-8 -*-
-# own_contacts Copyright (C) 2011-2014, 2017  Stuart Pook (http://www.pook.it/)
+# own_contacts Copyright (C) 2011-2014, 2017,2020  Stuart Pook (http://www.pook.it/)
 # This program is free software: you can redistribute it and/or modify it under
 # the terms of the GNU General Public License as published by the Free Software
 # Foundation, either version 3 of the License, or (at your option) any later version.
@@ -23,14 +23,12 @@
 
 # The printed output is formated for A4 paper.
 
-from __future__ import print_function
-from __future__ import with_statement # This isn't required in Python 2.6
-
 import sys;
 import os;
 import re;
 import unicodedata;
 import locale
+import requests
 import tempfile
 import vobject
 import subprocess
@@ -39,10 +37,7 @@ import errno
 import time
 import stat
 import getpass
-
-def verbose(options, *args):
-	if options.verbose:
-		print(*args, file=sys.stderr)
+import logging
 
 class MyError(Exception):
 	pass
@@ -84,7 +79,7 @@ def format_contact(contact, troff, min_pager, options):
 	try:
 		nv = contact.n.value
 	except AttributeError as x:
-		verbose(options, "AttributeError looking for n.value", x)
+		logging.debug("AttributeError looking for n.value %s", x)
 		return ''
 	name = ''
 	for k in (nv.prefix, nv.given, nv.family, nv.suffix, nv.additional):
@@ -159,7 +154,7 @@ def format_contact(contact, troff, min_pager, options):
 		for note in contact.contents['note']:
 			if len(note.value):
 				if done1:
-					verbose(options, nv, "has more than 1 note", out, note.value)
+					logging.debug("%s has more than 1 note %s %d", nv, out, note.value)
 					out += or_mark
 				else:
 					out += ' ('
@@ -174,7 +169,7 @@ def format_contact(contact, troff, min_pager, options):
 		else:
 			out += ' ' + email.value
 
-	return out.decode('utf-8')
+	return out
 
 def strip_accents(uc):
 	if uc == '':
@@ -195,7 +190,7 @@ def eclose(evolution, errors, cmd):
 
 def matcher(line, expressions, what):
 	#print("matching", what, "=", repr(s))
-	s = strip_accents(unicode(str(line), "utf-8"))
+	s = strip_accents(line)
 	for e in expressions:
 		if e.search(s):
 			return True
@@ -207,9 +202,12 @@ def match(contact, expressions):
 	for k in ("org", "title"):
 		for l in contact.contents.get(k, []):
 			m = l.value
-			if True:
-			#for m in l.value:
-				if matcher(m, expressions, k):
+			if isinstance(l.value, list):
+				for m in l.value:
+					if matcher(m, expressions, k):
+						return True
+			else:
+				if matcher(l.value, expressions, k):
 					return True
 
 	for k in ("n",):
@@ -246,12 +244,12 @@ def match(contact, expressions):
 def show_contacts(vcal, args, options):
 	expressions = []
 	for a in args:
-		expressions.append(re.compile(strip_accents(a.decode('utf-8')), re.IGNORECASE))
+		expressions.append(re.compile(strip_accents(a), re.IGNORECASE))
 	for contact in vobject.readComponents(vcal):
 		if (match(contact, expressions)):
 #			print dir(contact), contact.n.value.__doc__, `contact.n.value.given`, dir(contact.n.value)
 			#print(contact)
-			print(format_contact(contact, False, 0, options).encode('utf-8'))
+			print(format_contact(contact, False, 0, options))
 #		express: for e in expressions:
 #			for k in ("fn", "n", "org"):
 #				if k in contact.contents:
@@ -266,53 +264,51 @@ def show_contacts(vcal, args, options):
 #	eclose(evolution, errors)
 
 def build_url(options):
-	url = options.url if options.url else options.server + options.prefix + options.user + "/" + options.addressbook + options.suffix
-	verbose(options, "url", url)
+	url = options.url if options.url else options.server + '/' + options.user + "/" + options.addressbook + '/'
+	logging.debug("url %s", url)
 	return url
+
+def get_credentials(options):
+	with open(options.credentials) as f:
+		fields = f.readline().strip().split(':')
+		user = fields[0]
+		passwd = fields[1]
+		logging.debug("credentials %s %s", user, passwd)
+		return (user, passwd)
 
 def get_cache_file(options):
 
 	if options.cache:
-		mode = 0o600
 		try:
 			old = open(options.cache, "r")
 		except IOError as e:
 			if e.errno != errno.ENOENT:
 				raise e
-			verbose(options, "no cache " + options.cache)
+			logging.debug("no cache %s", options.cache)
 		else:
 			stat_buf = os.fstat(old.fileno())
 			age = time.time() -  stat_buf.st_mtime
 			if age <= options.cache_lifetime:
-				verbose(options,"reusing cache %s (age %.2f s)" % (options.cache, age))
+				logging.debug("reusing cache %s (age %.2f s)", options.cache, age)
 				return old
 			old.close()
 			mode = stat.S_IMODE(stat_buf.st_mode)
-			verbose(options, "cache %s too old (new mode %#o, age %.2f s)" % (options.cache, mode, age))
+			logging.debug("cache %s too old (new mode %#o, age %.2f s)", options.cache, mode, age)
 
 		tmp = options.cache + ".tmp"
-		contacts = os.fdopen(os.open(tmp, os.O_RDWR | os.O_CREAT | os.O_TRUNC, mode))
+		os.umask(0o77)
+		contacts = open(tmp, "w+")
 	else:
-		contacts = tempfile.TemporaryFile()
+		contacts = tempfile.TemporaryFile('w+')
 		tmp = None
 
-	get_contacts= [
-		"wget", # put user & password into ~/.netrc
-		"--output-document=-",
-		"--auth-no-challenge",
-		build_url(options),
-	]
-	verbose(options, "running", " ".join(get_contacts))
+	url = build_url(options)
+	r = requests.get(url, auth=get_credentials(options))
+	if r.status_code != 200:
+		logging.fatal("download from %s failed with %d", url, r.status_code)
+		sys.exit(7)
 
-	errors = tempfile.TemporaryFile()
-	getter = subprocess.Popen(get_contacts, bufsize=-1, stderr=errors, stdout=contacts, close_fds=True)
-	if getter.wait() != 0:
-		if tmp:
-			os.remove(tmp)
-		errors.seek(0)
-		sys.stderr.writelines(errors)
-		raise MyError("%s failed (%d)" % (" ".join(get_contacts), getter.returncode))
-
+	contacts.write(r.text)
 	contacts.seek(0)
 	if tmp:
 		os.rename(tmp, options.cache)
@@ -325,7 +321,7 @@ def format_contacts(cache, options, args):
 	if options.groff:
 		output = sys.stdout
 	else:
-		output = tempfile.TemporaryFile()
+		output = tempfile.TemporaryFile("w+")
 	mess = """.\\"
 .af minutes 00
 .kern
@@ -387,12 +383,12 @@ def format_contacts(cache, options, args):
 
 	cache.close()
 
-	contacts.sort(locale.strcoll)
+	contacts.sort(key=locale.strxfrm)
 
 	for line in contacts:
 		euro = u'\u20ac'
 		line = line.replace(euro, r'\[eu]')
-		output.write(line.encode('iso8859-1'))
+		output.write(line)
 		output.write('\n')
 		if full:
 			output.write('.br\n')
@@ -411,7 +407,7 @@ def format_contacts(cache, options, args):
 		os.dup2(output.fileno(), 0)
 		if options.print_list:
 			os.dup2(postscript.fileno(), 1)
-		cmd = ["groff"]
+		cmd = ["groff", '-k']
 		if options.utf8:
 			cmd.extend(["-T", "utf8"])
 		else:
@@ -458,37 +454,41 @@ def main():
 	parser.add_option("-C", "--cache_lifetime", metavar="seconds", type='float', default=60 * 60 * 24, help="cache life time [%default]")
 	parser.add_option("-r", "--retrieve", "-n", "--oldcache", action="store_const", const=0, dest='cache_lifetime',
 			help="consider cache is too old")
-	parser.add_option("-q", "--usecache", "--quick", action="store_const", const=sys.maxint, dest='cache_lifetime',
+	parser.add_option("-q", "--usecache", "--quick", action="store_const", const=sys.maxsize, dest='cache_lifetime',
 			help="consider cache is up todate")
-	parser.add_option("-v", "--verbose", action="store_true", help="verbose")
 	parser.add_option("-g", "--groff", action="store_true", help="produce groff output")
 	parser.add_option("-p", "--short_postscript", action="store_true", help="produce PostScript list")
 	parser.add_option("-P", "--full_postscript", action="store_true", help="produce full PostScript list")
-	parser.add_option("-i", "--international", action="store_true", help="use internation format for all numbers")
+	parser.add_option("-i", "--international", action="store_true", help="use international format for all numbers")
 	parser.add_option("-f", "--full", action="store_true", help="produce full list")
 	parser.add_option("-d", "--dots", action="store_true", help="add dots to numbers")
 	parser.add_option("-u", "--utf8", action="store_true", help="produce a full UTF-8 list")
-	parser.add_option("--stdin", action="store_true", help="read stdin")
 	parser.add_option("--dump", action="store_true", help="dump the raw contact list")
 	parser.add_option("--print", dest="print_list", action="store_true", help="print")
 	parser.add_option("--text_size", type='float', metavar="points", help="text size")
 	parser.add_option("--user", default=getpass.getuser(), help="username on server")
-	parser.add_option("--server", default="https://" + ".".join(['owncloud', 'pook', 'it']) + "/owncloud",
-			help="base url of your owncloud server [%default]")
+	parser.add_option("--server", default="http://localhost:37358", help="url etesync server [%default]")
 	parser.add_option("--url", default=None, help="full url to download [%default]")
-	parser.add_option("--addressbook", default="contacts", help="address book name on remote server [%default]")
-	parser.add_option("--prefix", default="/remote.php/carddav/addressbooks/",
-			help="url prefix for owncloud see https://doc.owncloud.org/server/8.0/user_manual/pim/contacts.html [%default]")
-	parser.add_option("--suffix", default="?export", help="url suffix for owncloud")
+	parser.add_option("--addressbook", default=os.environ['ETESYNC'], help="address name [%default]")
 	parser.add_option("--fax_tag", default="f", help="tag for fax numbers [%default]")
 	parser.add_option("--home_prefix", default="+33", help="home prefix [%default]")
-	parser.add_option("--cache", metavar="FILE", help="file to cache contacts [%default]")
+	parser.add_option("--credentials", metavar="FILE",
+			default=os.path.expanduser('~/.local/share/etesync-dav/htpaswd'), help="etesync credentials [%default]")
+	parser.add_option("--cache", default=os.path.expanduser('~/.ring-cache'), metavar="FILE", help="file to cache contacts [%default]")
+	parser.set_defaults(loglevel='warn')
+	parser.add_option("-v", "--verbose", "--debug", dest='loglevel', action="store_const", const='debug', help="debug loglevel")
+	parser.add_option("-l", "--loglevel", metavar="LEVEL", help="set logging level")
 
 	(options, args) = parser.parse_args()
 
 	#locale.setlocale(locale.LC_COLLATE, 'fr_FR.iso885915@euro')
 	locale.setlocale(locale.LC_ALL, '')
 	locale.setlocale(locale.LC_COLLATE, 'fr_FR.UTF-8')
+
+	numeric_level = getattr(logging, options.loglevel.upper(), None)
+	if not isinstance(numeric_level, int):
+		sys.exit('Invalid log level: %s' % options.loglevel)
+	logging.basicConfig(level=numeric_level)
 
 	with get_cache_file(options) as cache:
 		if options.dump:
