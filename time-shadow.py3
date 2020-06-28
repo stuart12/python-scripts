@@ -59,7 +59,11 @@ def photo_time(fn, options):
     try:
         with open(fn, 'rb') as img:
             if fn.endswith(".png"):
-                timestr = subprocess.check_output(["exiftool", "-S", "-" + options.tag.replace(" ", ":"), fn]).decode('utf-8').strip().split(' ', 1)[1]
+                try:
+                    timestr = subprocess.check_output(["exiftool", "-S", "-" + options.tag.replace(" ", ":"), fn]).decode('utf-8').strip().split(' ', 1)[1]
+                except IndexError:
+                    warn("index error", fn)
+                    raise
             else:
                 data = exifread.process_file(img, stop_tag=options.tag, details=False)
                 try:
