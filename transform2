@@ -584,7 +584,7 @@ def main(argv):
 	parser.add_option("-P", "--print_outdir", action="store_true", help="print output directory")
 	parser.add_option("--nodelete", action="store_true", help="do not delete any files")
 	parser.add_option("-D", "--delete", action="store_true", help="delete old files")
-	parser.add_option("--max_filename_characters", type="int", default=60,
+	parser.add_option("--max_filename_characters", type="int", default=90,
 			metavar="LENGTH",
 			help="maximum number characters of the file name to print [%default]")
 	parser.add_option("-q", "--quiet", action="store_true",help="silence [%default]")
