@@ -12,6 +12,7 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
+import logging
 import os
 import sys
 import re
@@ -26,18 +27,17 @@ except ImportError:
 def myname():
     return os.path.basename(sys.argv[0])
 
-def verbose(verbosity, level, *message):
-    if verbosity >= level:
-        print(myname() + ":", *message, file=sys.stderr)
-
-def verbose1(verbosity, *message):
-    verbose(verbosity, 1, *message)
+def lookup(url):
+    logging.info("lookup: %s", url)
+    return radioinfo.geturl(url)
 
 def main():
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter,
             description="Play RadioInfo station in MPD")
 
-    parser.add_argument("-v", "--verbosity", action="count", default=0, help="increase output verbosity")
+    parser.set_defaults(loglevel='warn')
+    parser.add_argument("-v", "--verbose", dest='loglevel', action="store_const", const='debug', help="debug loglevel")
+
     parser.add_argument("--mpd", metavar="hostname", default="localhost", help="MPD host to contact")
     parser.add_argument("--port", metavar="TCP PORT", type=int, default=6600, help="port number of mpd host")
 
@@ -45,15 +45,22 @@ def main():
 
     options = parser.parse_args()
 
+    numeric_level = getattr(logging, options.loglevel.upper(), None)
+    if not isinstance(numeric_level, int):
+        sys.exit('Invalid log level: %s' % options.loglevel)
+    logging.basicConfig(level=numeric_level)
+
     player = mpd.MPDClient()
     player.connect(options.mpd, options.port)
-    urls = [radioinfo.geturl(name) for name in options.station]
+    urls = [lookup(name) for name in options.station]
+    logging.debug("have %d url", len(urls))
     urls = [re.sub(r'^[-A-Za-z0-9+.]*:', lambda pat: pat.group(0).lower(), url) for url in urls]
-    verbose1(options.verbosity, urls)
 
     player.clear()
     for url in urls:
+        logging.debug("add %s", url)
         player.add(url)
+    logging.debug("play")
     player.play()
     player.close()
 
