@@ -599,7 +599,7 @@ def main(argv):
 	parser.add_option("--ncpus", default=1, type='int', help="number of cpus to use [%default]")
 	parser.add_option("-F", "--file_permissions", default=0o440, type='int', help="files must have at least these permissions [%default]")
 	parser.add_option("--directory_permissions", default=0o550, type='int', help="directories must have at least these permissions [%default]")
-	parser.add_option("--transform_dir", default=os.path.expanduser("~/etc/photo-transforms"), help="default directory for transformation configuration files [%default]")
+	parser.add_option("--transform_dir", default="/etc/photo-transforms", help="default directory for transformation configuration files [%default]")
 	parser.add_option("--transform_suffix", default=".yaml", help="default suffix for transformation configuration files [%default]")
 	(options, args) = parser.parse_args()
 
