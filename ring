@@ -269,6 +269,7 @@ def build_url(options):
 	return url
 
 def get_credentials(options):
+	logging.debug("reading credentials from %s", options.credentials)
 	with open(options.credentials) as f:
 		fields = f.readline().strip().split(':')
 		user = fields[0]
