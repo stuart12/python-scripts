@@ -50,6 +50,10 @@ def fix(directory, options):
 				verbose(options, "mv %s %s" % (shlex.quote(fn), shlex.quote(new_fn)))
 				if not options.dryrun:
 					os.rename(fn, new_fn)
+		else:
+			verbose(options, "remove orphan slave", shlex.quote(fn))
+			if not options.dryrun:
+				os.remove(fn)
 
 def main():
 	parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
