@@ -34,7 +34,7 @@ def add_alias(cmd, domain):
         sys.exit(p.wait())
 
 def read_aliases(stream):
-    return [ [ f.strip() for f in line.split(':') ] for line in stream ]
+    return [ [ f.strip() for f in line.split(' : ') ] for line in stream ]
 
 def download_aliases(cmd, domain, backup):
     logging.debug("run %s", ' '.join([shlex.quote(c) for c in cmd]))
