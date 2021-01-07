@@ -63,13 +63,16 @@ def photo_time(fn, options):
                     timestr = subprocess.check_output(["exiftool", "-S", "-" + options.tag.replace(" ", ":"), fn]).decode('utf-8').strip().split(' ', 1)[1]
                 except IndexError:
                     warn("index error", fn)
-                    raise
+                    return None
             else:
                 data = exifread.process_file(img, stop_tag=options.tag, details=False)
                 try:
                     timestr = data[options.tag].printable
                 except KeyError:
                     warn("no",  options.tag, "in", fn)
+                    return None
+                except IndexError:
+                    warn("index error", options.tag, "in", fn)
                     return None
             verbose2(options, fn, options.tag, "=", timestr)
             try:
