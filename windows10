@@ -7,6 +7,8 @@
 # The defaults from DHCP are correct.
 
 # if you are using btrfs disable copy on write: chattr +C .
+#
+# start sshd as Administrator in the VM and then, on the host, ssh to 127.0.0.1:10022
 
 import sys
 import argparse
