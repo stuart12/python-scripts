@@ -126,7 +126,7 @@ def main():
     parser.add_argument("--ip", metavar="IP_ADDRESS", default="172.31.2.78", help="IP address for VM")
     parser.add_argument("--mask", metavar="IP_MASK", default="255.255.255.192", help="IP mask for VM")
     #parser.add_argument("--delay", metavar="SECONDS", type=float, default=59, help="time between reads")
-    parser.add_argument('-p', "--percentage_ram", metavar="%", type=float, default=70, help="percentage of RAM to allocate to VM")
+    parser.add_argument('-p', "--percentage_ram", metavar="%", type=float, default=51, help="percentage of RAM to allocate to VM")
     parser.add_argument("--ram", metavar="MB", type=int, default=None, help="RAM to allocate to VM")
     parser.add_argument("--disk_size", metavar="GB", type=int, default=115, help="maximum disk size for VM")
     parser.add_argument("--smp", metavar="COUNT", type=int, default=len(os.sched_getaffinity(0)), help="CPUs to allocate to VM")
