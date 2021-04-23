@@ -57,6 +57,7 @@ def make_disk(directory, serial, disksz, cdrom, confluence):
 
 def run(build_dir, ip, ram, smp, hostbus, hostport, disksz, confluence, usbhost, vendor, product, monitor, usb_controller, *, cdrom,
         nic,
+        vga,
         serial, ip_mask, dryrun):
     disk = make_disk(build_dir, serial, disksz, cdrom, confluence)
     cmd = [ "qemu-system-x86_64" ]
@@ -89,6 +90,8 @@ def run(build_dir, ip, ram, smp, hostbus, hostport, disksz, confluence, usbhost,
     cmd.extend(["-serial", "none"]) # https://heiko-sieger.info/running-windows-10-on-linux-using-kvm-with-vga-passthrough/
     cmd.extend(["-parallel", "none"]) # https://heiko-sieger.info/running-windows-10-on-linux-using-kvm-with-vga-passthrough/
     cmd.extend(["-smbios", f"type=1,serial={serial}"]) # https://www.undrground.org/2011/01/14/bios-serial-number-and-kvm/
+    if vga:
+        cmd.extend(["-vga", vga])
     if usb_controller:
         cmd.extend(["-device", usb_controller])
         cmd.extend(["-device", "usb-tablet"])
@@ -123,6 +126,7 @@ def main():
     parser.add_argument("-v", "--verbose", dest='loglevel', action="store_const", const='debug', help="debug loglevel")
     parser.add_argument("-l", "--loglevel", metavar="LEVEL", help="set logging level")
     parser.add_argument("--confluence", metavar="URL", default=confluence, help="web page for instructions")
+    parser.add_argument("--vga", metavar="TYPE", default="virtio", help="type of VGA card to emulate")
     parser.add_argument("--ip", metavar="IP_ADDRESS", default="172.31.2.78", help="IP address for VM")
     parser.add_argument("--mask", metavar="IP_MASK", default="255.255.255.192", help="IP mask for VM")
     #parser.add_argument("--delay", metavar="SECONDS", type=float, default=59, help="time between reads")
@@ -163,6 +167,7 @@ def main():
             options.monitor,
             options.usb_controller,
             cdrom=options.cdrom,
+            vga=options.vga,
             nic=options.nic,
             dryrun=options.dryrun,
             serial=options.serial,
