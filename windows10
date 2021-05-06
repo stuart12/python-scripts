@@ -58,7 +58,7 @@ def make_disk(directory, serial, disksz, cdrom, confluence):
 def run(build_dir, ip, ram, smp, hostbus, hostport, disksz, confluence, usbhost, vendor, product, monitor, usb_controller, *, cdrom,
         nic,
         vga,
-        serial, ip_mask, dryrun):
+        serial, ip_mask, ports, lowports, dryrun):
     disk = make_disk(build_dir, serial, disksz, cdrom, confluence)
     cmd = [ "qemu-system-x86_64" ]
     cmd.extend(["-m", f"{ram}M"])
@@ -80,7 +80,7 @@ def run(build_dir, ip, ram, smp, hostbus, hostport, disksz, confluence, usbhost,
     user = getpass.getuser()
     net = ipaddress.IPv4Network(f"{ip}/{ip_mask}", strict=False).with_netmask
     netdev = ",".join([f"user,id={id},net={net},dhcpstart={ip},hostname={user.replace('.', '_')}-windows"] +
-        [f"hostfwd=tcp:127.0.0.1:{local}-:{remote}" for local, remote in [[10022, 22], [8000, 8000]]])
+        [f"hostfwd=tcp:127.0.0.1:{local}-:{remote}" for local, remote in ([[10000 + p, p] for p in lowports] + [[p, p] for p in ports])])
     cmd.extend([
         "-device", f"virtio-net,netdev={id}",
         "-netdev", netdev])
@@ -151,6 +151,8 @@ def main():
     parser.add_argument("-1", "--usb1", dest="usb_controller", action="store_const", const="piix3-usb-uhci,id=uhci", help="activate an USB1.1 controller")
     parser.add_argument("-3", "--usb3", dest="usb_controller", action="store_const", const="nec-usb-xhci,id=xhci", help="activate an USB3 controller")
     parser.add_argument("-2", "--usb2", dest="usb_controller", action="store_const", const="usb-ehci,id=ehci", help="activate an USB2 controller")
+    parser.add_argument("--ports", dest="ports", action="append", type=int, default=[8000], help="ports to forward")
+    parser.add_argument("--lowports", action="append", type=int, default=[22], help="low numbered ports to forward")
 
     options = parser.parse_args()
 
@@ -171,6 +173,8 @@ def main():
             nic=options.nic,
             dryrun=options.dryrun,
             serial=options.serial,
+            ports=options.ports,
+            lowports=options.lowports,
             ip_mask=options.mask)
 
 if __name__ == "__main__":
