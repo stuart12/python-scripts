@@ -87,6 +87,8 @@ def main(argv):
 		print("Enabled=false", file=pp3)
 	print("[LensProfile]",  file=pp3)
 	print("LcMode=lfauto",  file=pp3)
+	print("[Color Management]", file=pp3)
+	print("OutputProfile=", file=pp3) # use sRGB colour profile
 	pp3.flush()
 
 	command = [ "rawtherapee-cli", "-Y"]
