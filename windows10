@@ -151,8 +151,8 @@ def main():
     parser.add_argument("-1", "--usb1", dest="usb_controller", action="store_const", const="piix3-usb-uhci,id=uhci", help="activate an USB1.1 controller")
     parser.add_argument("-3", "--usb3", dest="usb_controller", action="store_const", const="nec-usb-xhci,id=xhci", help="activate an USB3 controller")
     parser.add_argument("-2", "--usb2", dest="usb_controller", action="store_const", const="usb-ehci,id=ehci", help="activate an USB2 controller")
-    parser.add_argument("--ports", dest="ports", action="append", type=int, default=[8000], help="ports to forward")
-    parser.add_argument("--lowports", action="append", type=int, default=[22], help="low numbered ports to forward")
+    parser.add_argument("--ports", dest="ports", action="append", type=int, default=[8000,50000,50001,50002,50003,50004,50005], help="ports to forward")
+    parser.add_argument("--lowports", action="append", type=int, default=[22,80], help="low numbered ports to forward")
 
     options = parser.parse_args()
 
