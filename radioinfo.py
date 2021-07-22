@@ -1,6 +1,6 @@
 #!/usr/bin/python3
-# radioinfo Copyright (c) 2017 Stuart Pook (http://www.pook.it/)
-# Get the URL from the name of a station in http://www.radio-browser.info/webservice
+# radioinfo Copyright (c) 2017,2021 Stuart Pook (http://www.pook.it/)
+# Get the URL from the name of a station in http://www.radio-browser.info
 # set noexpandtab copyindent preserveindent softtabstop=0 shiftwidth=4 tabstop=4
 # This program is free software: you can redistribute it and/or modify it under
 # the terms of the GNU General Public License as published by the Free Software
@@ -29,46 +29,38 @@ def verbose(verbosity, level, *message):
 def verbose1(verbosity, *message):
     verbose(verbosity, 1, *message)
 
+default_search = "json/stations/bynameexact"
+default_server = "fr1.api.radio-browser.info"
+default_key = "url_resolved"
+default_bytes = 32000
 
-def getid(name, base, read_bytes, verbosity):
-    url = base + urllib.parse.quote(name)
-    verbose1(verbosity, url)
-    with urllib.request.urlopen(url) as f:
-        id = int(json.loads(f.read(read_bytes).decode('utf8'))[0]['id'])
-        verbose1(verbosity, "id", id)
-        return id
-
-default_search = "http://www.radio-browser.info/webservice/json/stations/bynameexact/"
-default_lookup = "http://www.radio-browser.info/webservice/v2/json/url/"
-
-def geturl(name, base = default_search, lookup = default_lookup, read_bytes=10000, verbosity = 0):
-    url = "%s%d" % (lookup, getid(name, base, read_bytes, verbosity))
+def geturl(name, server = default_server, search = default_search, read_bytes=default_bytes, verbosity=0, key=default_key):
+    url = f"https://{server}/{search}/{urllib.parse.quote(name)}"
     verbose1(verbosity, url)
     with urllib.request.urlopen(url) as f:
         answer = json.loads(f.read(read_bytes).decode('utf8'))
-        if answer['ok'] != "true":
-            sys.exit("%s: \"%s\" lookup failed: %s" % (myname(), name, answer['message']))
+        verbose1(verbosity, answer)
         try:
-            return answer['url']
+            return answer[0][key]
         except KeyError as ex:
-            sys.exit("%s: for \"%s\" no url in %s" % (myname, name, answer))
-
+            sys.exit(f"{myname()}: for \"{name}\" no {key} in {answer}")
 
 def main():
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter,
             description="Get URL from station name in www.radio-browser.info")
 
     parser.add_argument("-v", "--verbosity", action="count", default=0, help="increase output verbosity")
-    parser.add_argument("--search", metavar="URL", default=default_search, help="search URL")
-    parser.add_argument("--lookup", metavar="URL", default=default_lookup, help="lookup URL")
-    parser.add_argument("--read", metavar="BYTES", default=32000, type=int, help="size of read for result")
+    parser.add_argument("--search", metavar="REQUEST", default=default_search, help="search request")
+    parser.add_argument("--server", metavar="SERVER", default=default_server, help="server")
+    parser.add_argument("--key", default=default_key, help="key in Struct Station")
+    parser.add_argument("--read", metavar="BYTES", default=default_bytes, type=int, help="size of read for result")
 
     parser.add_argument('names', nargs=argparse.REMAINDER, help='stations to lookup')
 
     options = parser.parse_args()
     for name in options.names:
         verbose1(options.verbosity, "name:", name)
-        print(geturl(name, options.search, options.lookup, options.read, options.verbosity))
+        print(geturl(name, options.server, options.search, options.read, options.verbosity, key=options.key))
 
 if __name__ == "__main__":
     main()
