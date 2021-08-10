@@ -93,6 +93,7 @@ def main(argv):
 
 	command = [ "rawtherapee-cli", "-Y"]
 	command.append("-j%d" % options.quality)
+	command.append("-d")
 	if options.pp3:
 		command.extend(["-p", options.pp3])
 	command.extend(["-p", pp3.name])
