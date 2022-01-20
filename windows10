@@ -66,7 +66,7 @@ def run(build_dir, ip, ram, smp, hostbus, hostport, disksz, confluence, usbhost,
     cmd.extend(["-machine", "q35,accel=kvm"])
     cmd.extend(["-device", "intel-iommu"])
     cmd.extend(["-device", "virtio-balloon"]) # https://access.redhat.com/articles/2470791
-    cmd.extend(["-cpu", "host,hv_relaxed,hv_spinlocks=0x1fff,hv_vapic,hv_time"])
+    cmd.extend(["-cpu", "host,hv_relaxed,hv_spinlocks=0x1fff,hv_vapic,hv_time,topoext"])
     cores = psutil.cpu_count(logical=False)
     threads = int(psutil.cpu_count() / cores)
     cmd.extend(["-smp", f"cpus={smp},threads={threads},cores={cores}"])
