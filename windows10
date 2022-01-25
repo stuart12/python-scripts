@@ -143,8 +143,8 @@ def main():
     #parser.add_argument("-a", "--address", type=lambda x: int(x, 0), metavar="ADDRESS", help="IC2 bus address")
     parser.add_argument("--monitor", type=int, default=10001, help="qemu monitor port [0 to disable]")
     parser.add_argument("-n", "--dryrun", action="store_true", help="just print command")
-    parser.add_argument("-b", "--build", default=os.path.expanduser("~/ws/criteo-scratch/WindowsWorkstation"), help="where to find disk images")
-    parser.add_argument("-c", "--cdrom", default=os.path.expanduser("~/ws/criteo-scratch/WindowsWorkstation/CriteoBootMedia.iso"), help="CDROM")
+    parser.add_argument("-b", "--build", default=os.path.expanduser("~/.windows10"), help="where to find disk images")
+    parser.add_argument("-c", "--cdrom", default=os.path.expanduser("~/.windows10/CriteoBootMedia.iso"), help="CDROM")
     parser.add_argument("--nic", default="virtio", help="use e1000 before install drivers")
     parser.add_argument("-u", "--usb_controller", default="usb-ehci,id=ehci", help="activate a USB controller")
     # https://github.com/qemu/qemu/blob/master/docs/usb2.txt
