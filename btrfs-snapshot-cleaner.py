@@ -30,9 +30,18 @@ import dateutil.parser
 import itertools
 
 def clean_old_transient(directory, options):
+	try:
+		subdirs = os.listdir(directory)
+	except FileNotFoundError:
+		if options.skip:
+			logging.info("skipping missing %s" % directory)
+			return False
+		logging.fatal("%s: not found" % directory)
+		sys.exit(5)
+
 	now = datetime.datetime.now(pytz.utc)
 	deleted = 0
-	for subdir in os.listdir(directory):
+	for subdir in subdirs:
 		where = os.path.join(directory, subdir)
 		for snapshot in os.listdir(where):
 			if not snapshot.endswith(options.good):
@@ -45,6 +54,7 @@ def clean_old_transient(directory, options):
 				else:
 					logging.debug("keeping %s/%s (%s) as age %d days is not greater than limit %d" % (where, snapshot, dt, age, options.transient_age))
 	time.sleep(options.delete_delay * deleted)
+	return True
 
 def space_limited(directory, options, check=True):
 	stat = shutil.disk_usage(directory)
@@ -66,6 +76,9 @@ def directory_snapshots(directory, options):
 	return map(prefix, good)
 
 def clean_old(directory, options):
+	if not clean_old_transient(directory, options):
+		return
+
 	if not space_limited(directory, options, check=False):
 		return
 
@@ -90,6 +103,7 @@ def main():
 	parser.add_argument('--btrfs', default="btrfs", help='btrfs command')
 	parser.add_argument('-n', '--dryrun', action='store_true', help='dryrun')
 	parser.add_argument('--stdout', action='store_true', help='dump command output')
+	parser.add_argument('--skip', action='store_true', help='silently skip missing directories')
 	parser.add_argument('--transient_age', type=int, default=1, metavar="days", help='age of oldest transient to keep')
 	parser.add_argument('--keep', type=int, default=1, metavar="COUNT", help='minimum number of snapshots per directory to keep')
 	parser.add_argument('--free', type=float, default=10.0, metavar="PERCENT", help='minumum percent disk free')
@@ -106,14 +120,12 @@ def main():
 		raise ValueError('Invalid log level: %s' % loglevel)
 	logging.basicConfig(level=numeric_level)
 
-	if not options.good:
-		sys.exit("good suffix cannot be empty")
-
-	for dest in options.args:
-		clean_old_transient(dest, options)
+	if len(options.good) < 2 or options.good[0] != '.':
+		sys.exit("bad good suffix")
 
 	for dest in options.args:
 		clean_old(dest, options)
+
 	sys.exit(0)
 if __name__ == "__main__":
 	main()
