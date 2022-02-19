@@ -38,6 +38,7 @@ import time
 import stat
 import getpass
 import logging
+import hashlib
 
 class MyError(Exception):
 	pass
@@ -274,7 +275,7 @@ def get_credentials(options):
 		fields = f.readline().strip().split(':')
 		user = fields[0]
 		passwd = fields[1]
-		logging.debug("credentials %s %s", user, passwd)
+		logging.debug("credentials user=%s hash(passwd)=%s", user, hashlib.blake2b(passwd.encode(), digest_size=10).hexdigest())
 		return (user, passwd)
 
 def get_cache_file(options):
