@@ -108,22 +108,29 @@ def pipe(first, second, options):
 	if r:
 		sys.exit(r)
 
+def notify(result, options, message):
+	if result:
+		verbose(options, message)
+	else:
+		warn(message)
+	return result
+
 def copy(src, dst, options):
-	src_snapshots = sorted(get_snapshots(src, options))
+	try:
+		src_snapshots = sorted(get_snapshots(src, options))
+	except FileNotFoundError:
+		return notify(options.missing, options, "source directory %s missing" % src)
 	if len(src_snapshots) == 0:
-		warn("source directory %s is empty" % src)
-		return options.missing
+		return notify(options.missing, options, "source directory %s is empty" % src)
 	dst_snapshots_list = get_backups(dst, options)
 	if dst_snapshots_list is None:
-		verbose(options, "destination directory %s is missing" % dst)
-		return options.partial
+		return notify(options.partial, options, "destination directory %s is missing" % dst)
 	dst_snapshots = frozenset(dst_snapshots_list)
 
 	target = src_snapshots[-1]
 	old_snapshot = os.path.join(src, target)
 	if target in dst_snapshots:
-		warn("most recent snapshot %s is already in %s" % (old_snapshot, dst))
-		return options.skip
+		return notify(options.skip, options, "most recent snapshot %s is already in %s" % (old_snapshot, dst))
 	sender = [options.btrfs, "send"]
 	for common in dst_snapshots & frozenset(src_snapshots):
 		sender.extend(["-c", os.path.join(src, common)])
