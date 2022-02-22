@@ -109,35 +109,35 @@ def pipe(first, second, options):
 		sys.exit(r)
 
 def copy(src, dst, options):
-		src_snapshots = sorted(get_snapshots(src, options))
-		if len(src_snapshots) == 0:
-			warn("source directory %s is empty" % src)
-			return options.missing
-		dst_snapshots_list = get_backups(dst, options)
-		if dst_snapshots_list is None:
-			verbose(options, "destination directory %s is missing" % dst)
-			return options.partial
-		dst_snapshots = frozenset(dst_snapshots_list)
+	src_snapshots = sorted(get_snapshots(src, options))
+	if len(src_snapshots) == 0:
+		warn("source directory %s is empty" % src)
+		return options.missing
+	dst_snapshots_list = get_backups(dst, options)
+	if dst_snapshots_list is None:
+		verbose(options, "destination directory %s is missing" % dst)
+		return options.partial
+	dst_snapshots = frozenset(dst_snapshots_list)
 
-		target = src_snapshots[-1]
-		old_snapshot = os.path.join(src, target)
-		if target in dst_snapshots:
-			warn("most recent snapshot %s is already in %s" % (old_snapshot, dst))
-			return options.skip
-		sender = [options.btrfs, "send"]
-		for common in dst_snapshots & frozenset(src_snapshots):
-			sender.extend(["-c", os.path.join(src, common)])
-		sender.append(old_snapshot)
+	target = src_snapshots[-1]
+	old_snapshot = os.path.join(src, target)
+	if target in dst_snapshots:
+		warn("most recent snapshot %s is already in %s" % (old_snapshot, dst))
+		return options.skip
+	sender = [options.btrfs, "send"]
+	for common in dst_snapshots & frozenset(src_snapshots):
+		sender.extend(["-c", os.path.join(src, common)])
+	sender.append(old_snapshot)
 
-		pipe(sender, [options.btrfs, "receive", dst], options)
+	pipe(sender, [options.btrfs, "receive", dst], options)
 
-		new_snapshot = os.path.join(dst, target)
-		if options.compare:
-			verbose(options, "compare", old_snapshot, new_snapshot)
-			print_diff_files(filecmp.dircmp(old_snapshot, new_snapshot))
+	new_snapshot = os.path.join(dst, target)
+	if options.compare:
+		verbose(options, "compare", old_snapshot, new_snapshot)
+		print_diff_files(filecmp.dircmp(old_snapshot, new_snapshot))
 
-		os.rename(new_snapshot, new_snapshot + options.good)
-		return True
+	os.rename(new_snapshot, new_snapshot + options.good)
+	return True
 
 def copy_with_config(options):
 	config = configparser.ConfigParser()
