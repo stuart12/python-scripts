@@ -152,7 +152,6 @@ def format_contact(contact, troff, min_pager, options):
 
 	done1 = False
 	for what in ('title', 'role', 'note'):
-		#print(contact.contents)
 		if what in contact.contents:
 			for note in contact.contents[what]:
 				if len(note.value):
