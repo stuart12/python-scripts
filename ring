@@ -150,19 +150,21 @@ def format_contact(contact, troff, min_pager, options):
 				for vv in v:
 					out += vv
 
-	if 'note' in contact.contents:
-		done1 = False
-		for note in contact.contents['note']:
-			if len(note.value):
-				if done1:
-					logging.debug("%s has more than 1 note %s %d", nv, out, note.value)
-					out += or_mark
-				else:
-					out += ' ('
-					done1 = True
-				out += note.value.rstrip('\n').replace('\n', or_mark)
-		if done1:
-			out += ')'
+	done1 = False
+	for what in ('title', 'role', 'note'):
+		#print(contact.contents)
+		if what in contact.contents:
+			for note in contact.contents[what]:
+				if len(note.value):
+					if done1:
+						logging.debug("%s has more than 1 %s %s %d", nv, what,  out, note.value)
+						out += or_mark
+					else:
+						out += ' ('
+						done1 = True
+					out += note.value.rstrip('\n').replace('\n', or_mark)
+	if done1:
+		out += ')'
 
 	for email in contact.contents.get('email', []):
 		if troff:
@@ -200,7 +202,7 @@ def matcher(line, expressions, what):
 
 def match(contact, expressions):
 #	print(contact)
-	for k in ("org", "title"):
+	for k in ("org", "title",  "role"):
 		for l in contact.contents.get(k, []):
 			m = l.value
 			if isinstance(l.value, list):
