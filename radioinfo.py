@@ -30,7 +30,7 @@ def verbose1(verbosity, *message):
     verbose(verbosity, 1, *message)
 
 default_search = "json/stations/bynameexact"
-default_server = "fr1.api.radio-browser.info"
+default_server = "de1.api.radio-browser.info"
 default_key = "url_resolved"
 default_bytes = 32000
 
