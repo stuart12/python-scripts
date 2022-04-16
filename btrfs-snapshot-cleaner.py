@@ -29,6 +29,33 @@ import dateutil
 import dateutil.parser
 import itertools
 
+def quote_command(command):
+	return " ".join(shlex.quote(x) for x in command)
+
+def check_pipe(command, p, stdout, options):
+	if p.wait() != 0:
+		if stdout is None:
+			r = ""
+		else:
+			stdout.seek(0)
+			r = ": " + stdout.read().rstrip()
+		logging.fatal("%s: failed (%d)%s", quote_command(command), p.returncode, r)
+		sys.exit(7)
+
+def get_stdout():
+	if logging.getLogger().getEffectiveLevel() <= logging.INFO:
+		return None
+	return tempfile.TemporaryFile(mode='w+')
+
+def check_call(command, options=None, cwd=None):
+	if options.dryrun:
+		logging.info("in %s, would run %s", cwd, quote_command(command));
+		return True
+	logging.info("in %s, run %s", cwd, quote_command(command));
+	stdout = get_stdout()
+	p = subprocess.Popen(command, cwd=cwd, stderr=subprocess.STDOUT, stdout=stdout)
+	check_pipe(command, p, stdout, options)
+
 def clean_old_transient(directory, options):
 	try:
 		subdirs = os.listdir(directory)
@@ -90,7 +117,7 @@ def clean_old(directory, options):
 		if not space_limited(directory, options):
 			return
 		check_call([options.btrfs, "subvolume", "delete", options.commit, snapshot], cwd=where, options=options)
-		time.select(options.delete_delay)
+		time.sleep(options.delete_delay)
 
 def main():
 	parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
