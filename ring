@@ -93,12 +93,6 @@ def format_contact(contact, troff, min_pager, options):
 		out = name + ','
 
 	pager = 0
-	categories = contact.contents.get('categories', [])
-	for g in categories:
-		if 'VIP' in g.value:
-			pager = 2
-		elif 'important' in g.value and pager == 0:
-			pager = 1
 
 	numbers = set()
 	for number in contact.contents.get('tel', []):
@@ -113,7 +107,8 @@ def format_contact(contact, troff, min_pager, options):
 			elif icase(ntype, 'WORK'):
 				tag += 'w'
 			elif icase(ntype, 'PAGER'):
-				tag += 'p'
+				pager = int(number.value)
+				break
 		else:
 			formated_number = format_number(number.value, options)
 			if insert(numbers, formated_number):
