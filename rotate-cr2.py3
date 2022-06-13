@@ -14,8 +14,9 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+import logging
 import os
-import optparse
+import argparse
 import sys
 import subprocess
 import tempfile
@@ -32,6 +33,7 @@ def myname():
 
 def is_horizontal(cr2):
 	with open(cr2, 'rb') as img:
+		logging.debug(f"is_horizontal({shlex.quote(cr2)})")
 		data = exifread.process_file(img, details=True)
 		for field in ['Image Orientation', 'Camera Orientation', 'Orientation']:
 			d = data.get(field)
@@ -40,21 +42,29 @@ def is_horizontal(cr2):
 		return True
 
 def main(argv):
-	parser = optparse.OptionParser(usage="usage: %prog [--help] [options] source_dir target_dir")
+	parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+            description="Format image with rawtherapee")
 	parser.set_defaults(check_children=False)
-	parser.disable_interspersed_args()
-	parser.add_option("-v", "--verbose", action="store_true", help="verbose messages")
-	parser.add_option("--icc", default=None, metavar="ICC filename", help="ICC colour profile for image [%default]")
-	parser.add_option("-n", "--dryrun", action="store_true", help="dryrun")
-	parser.add_option("--quality", type="int", default=40, help="JPEG quality [%default]")
-	parser.add_option("--height", type="int", help="height [%default]")
-	parser.add_option("--width", type="int", help="width [%default]")
-	parser.add_option("--output", help="output JPEG file")
-	parser.add_option("--pp3", default=None, help="rawtherapee PP3 file")
-	parser.add_option("--resizing_pp3", default=None, help="resizing rawtherapee PP3 file")
-	(options, args) = parser.parse_args()
+	parser.set_defaults(loglevel='warning')
+	# parser.disable_interspersed_args()
+	parser.add_argument("-v", "--verbose", dest='loglevel', action="store_const", const='debug', help="debug loglevel")
+	parser.add_argument("--icc", default=None, metavar="ICC filename", help="ICC colour profile for image [%default]")
+	parser.add_argument("-n", "--dryrun", action="store_true", help="dryrun")
+	parser.add_argument("--quality", type=int, default=40, help="JPEG quality [%default]")
+	parser.add_argument("--height", type=int, help="height [%default]")
+	parser.add_argument("--width", type=int, help="width [%default]")
+	parser.add_argument("--output", help="output JPEG file")
+	parser.add_argument("--pp3", default=None, help="rawtherapee PP3 file")
+	parser.add_argument("--resizing_pp3", default=None, help="resizing rawtherapee PP3 file")
+	parser.add_argument('image', nargs=1, help='image to process')
+	options = parser.parse_args()
 
-	cr2 = args[0]
+	numeric_level = getattr(logging, options.loglevel.upper(), None)
+	if not isinstance(numeric_level, int):
+		sys.exit('Invalid log level: %s' % options.loglevel)
+	logging.basicConfig(level=numeric_level)
+
+	cr2 = options.image[0]
 
 	width = options.width
 	height = options.height
@@ -101,10 +111,9 @@ def main(argv):
 		command.extend(["-p", options.pp3])
 	command.extend(["-p", pp3.name])
 	command.extend(["-o", options.output])
-	command.extend(["-c", args[0]])
+	command.extend(["-c", cr2])
 	stderr = tempfile.TemporaryFile(mode='w+')
-	if options.verbose:
-		print(myname() + ": running", " ".join(map(shlex.quote, command)), file=sys.stderr)
+	logging.debug("running %s" % " ".join(map(shlex.quote, command)))
 	status = subprocess.call(command, stdout=open("/dev/null", "w"), stderr=stderr)
 	if status:
 		print(myname()+ ":", "command failed (%d):" % status, " ".join(shlex.quote(c) for c in command), file=sys.stderr)
