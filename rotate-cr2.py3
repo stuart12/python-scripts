@@ -44,6 +44,7 @@ def main(argv):
 	parser.set_defaults(check_children=False)
 	parser.disable_interspersed_args()
 	parser.add_option("-v", "--verbose", action="store_true", help="verbose messages")
+	parser.add_option("--icc", default=None, metavar="ICC filename", help="ICC colour profile for image [%default]")
 	parser.add_option("-n", "--dryrun", action="store_true", help="dryrun")
 	parser.add_option("--quality", type="int", default=40, help="JPEG quality [%default]")
 	parser.add_option("--height", type="int", help="height [%default]")
@@ -89,6 +90,8 @@ def main(argv):
 	print("LcMode=lfauto",  file=pp3)
 	print("[Color Management]", file=pp3)
 	print("OutputProfile=", file=pp3) # use sRGB colour profile
+	if options.icc:
+		print("InputProfile=file:" + options.icc, file=pp3)
 	pp3.flush()
 
 	command = [ "rawtherapee-cli", "-Y"]
