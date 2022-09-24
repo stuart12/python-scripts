@@ -21,7 +21,7 @@ import subprocess
 import sys
 
 def import_failed(pkg):
-	print("import failed, do: sudo apt-get install python3-pil", file=sys.stderr)
+	print(f"import failed, do: sudo apt-get install {pkg}", file=sys.stderr)
 	sys.exit(87)
 
 try:
@@ -102,7 +102,8 @@ def shrink(inputfile, options):
 			else:
 				os.symlink(inputfile, options.output)
 	else:
-		im.thumbnail((width, height), Image.ANTIALIAS)
+		im.thumbnail((width, height), Image.Resampling.LANCZOS)
+		im = im.convert('RGB')
 		im.save(options.output, "JPEG", quality=options.quality)
 		copy_exif_data(im, inputfile, options.output, options)
 		if os.path.getsize(options.output) > os.path.getsize(inputfile) * 1.2:
