@@ -22,11 +22,16 @@ import subprocess
 import tempfile
 import shlex # python 3.3 or later
 import configparser
+import re
 try:
 	import exifread
 except ImportError:
 	print("sudo apt install python3-exif", file=sys.stderr)
 	raise
+from PIL import Image
+from PIL.ExifTags import TAGS
+import piexif
+from datetime import datetime
 
 def myname():
 	return os.path.basename(sys.argv[0])
@@ -41,12 +46,51 @@ def is_horizontal(cr2):
 				return d.printable.lower().startswith("horizontal")
 		return True
 
+def getDateTime(fn):
+	base = os.path.basename(fn)
+	m = re.match(r".* \((\d\d\d\d)[-/:](\d\d)[-/:](\d\d) (\d\d)[-:/](\d\d)\)\.[a-z.]*", base)
+	if m:
+		r = f"{m.group(1)}:{m.group(2)}:{m.group(3)} {m.group(4)}:{m.group(5)}:00";
+		logging.debug(f"date/time from {fn} is {r}")
+		return r
+	m = re.match(r".* \((\d\d\d\d)[-/:](\d\d)[-/:](\d\d)\)\.[a-z.]*", base)
+	if m:
+		r = f"{m.group(1)}:{m.group(2)}:{m.group(3)} 12:00:00";
+		logging.debug(f"date from {fn} is {r}")
+		return r
+	logging.debug(f"no date from {fn} -> {base}")
+	return None
+
+def setDateTime(cr2name, output):
+	#subprocess.check_call(["exiftool", "-tagsFromFile", cr2name, output])
+
+	date = getDateTime(cr2name)
+	if date:
+		im = Image.open(output)
+		#exif_dict = piexif.load(im.info["exif"])
+		zeroth_ifd = {piexif.ImageIFD.Make: "Canon",  # ASCII, count any
+				  piexif.ImageIFD.XResolution: (96, 1),  # RATIONAL, count 1
+				  piexif.ImageIFD.YResolution: (96, 1),  # RATIONAL, count 1
+				  piexif.ImageIFD.Software: "piexif"  # ASCII, count any
+				  }
+		exif_ifd = {piexif.ExifIFD.ExifVersion: b"\x02\x00\x00\x00",  # UNDEFINED, count 4
+				piexif.ExifIFD.DateTimeOriginal: date,
+				}
+		gps_ifd = {piexif.GPSIFD.GPSVersionID: (2, 0, 0, 0),  # BYTE, count 4
+			   piexif.GPSIFD.GPSAltitudeRef: 1,  # BYTE, count 1 ... also be accepted '(1,)'
+			   }
+		#exif_dict = {"0th":zeroth_ifd, "Exif":exif_ifd, "GPS":gps_ifd}
+		exif_dict = {"Exif":exif_ifd}
+		#exif_dict["0th"][piexif.ImageIFD.DateTime] = date
+
+		exif_bytes = piexif.dump(exif_dict)
+		im.save(output, "jpeg", exif=exif_bytes, quality="keep", optimize=True)
+
 def main(argv):
 	parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter,
             description="Format image with rawtherapee")
 	parser.set_defaults(check_children=False)
 	parser.set_defaults(loglevel='warning')
-	# parser.disable_interspersed_args()
 	parser.add_argument("-v", "--verbose", dest='loglevel', action="store_const", const='debug', help="debug loglevel")
 	parser.add_argument("--icc", default=None, metavar="ICC filename", help="ICC colour profile for image [%default]")
 	parser.add_argument("-n", "--dryrun", action="store_true", help="dryrun")
@@ -121,6 +165,7 @@ def main(argv):
 		for line in stderr:
 			print(line, end='', file=sys.stderr)
 		sys.exit(status)
+	setDateTime(cr2, options.output)
 
 if __name__ == "__main__":
 	main(sys.argv)
