@@ -16,6 +16,7 @@ import argparse
 import sys
 import shlex
 import logging
+import re
 
 def transform_name(fn):
     fname,  suffix = os.path.splitext(fn)
@@ -24,7 +25,12 @@ def transform_name(fn):
     sections = fname.split(' ',  1)
     if len(sections) != 2:
         return fn
-    return sections[1] + ' ' + sections[0] + suffix
+
+    description = sections[1]
+    m = re.match(r"(.*) \(\d\d\d\d-\d\d-\d\d( \d\d:\d\d)?\)", description)
+    if m:
+        description = m.group(1)
+    return description + ' ' + sections[0] + suffix
 
 def check_and_update(src, dst_dir,  new_name):
     dst = os.path.join(dst_dir,  new_name)
