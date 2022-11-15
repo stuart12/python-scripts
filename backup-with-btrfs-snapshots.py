@@ -55,8 +55,7 @@ def check_call(command, options):
 	verbose(options, quote_command(command))
 	stdout = get_stdout(options)
 	p = subprocess.Popen(command, stderr=subprocess.STDOUT, stdout=stdout)
-	if check_pipe(command, p, stdout) > 0:
-		sys.exit(10)
+	return check_pipe(command, p, stdout) == 0
 
 def get_snapshots(dirname, options):
 	return os.listdir(dirname)
@@ -76,7 +75,8 @@ def get_backups(dirname, options):
 		if fn.endswith(options.good):
 			r.append(fn[:-len(options.good)])
 		elif options.clean:
-			check_call([options.btrfs, "subvolume", "delete", os.path.join(dirname, fn)], options)
+			if not check_call([options.btrfs, "subvolume", "delete", os.path.join(dirname, fn)], options):
+				return None
 	return r
 
 def print_diff_files(dcmp):
@@ -105,8 +105,9 @@ def pipe(first, second, options):
 	r = 0
 	r += check_pipe(first, p1, p1_stderr)
 	r += check_pipe(second, p2, p2_stdout)
-	if r:
-		sys.exit(r)
+	if r != 0:
+		warn("pipe failed", first, second)
+	return r == 0
 
 def notify(result, options, message):
 	if result:
@@ -116,6 +117,7 @@ def notify(result, options, message):
 	return result
 
 def copy(src, dst, options):
+	verbose(options, "copy start", src, dst)
 	try:
 		src_snapshots = sorted(get_snapshots(src, options))
 	except FileNotFoundError:
@@ -129,6 +131,7 @@ def copy(src, dst, options):
 
 	target = src_snapshots[-1]
 	old_snapshot = os.path.join(src, target)
+	verbose(options, "copy have target", target)
 	if target in dst_snapshots:
 		return notify(options.skip, options, "most recent snapshot %s is already in %s" % (old_snapshot, dst))
 	sender = [options.btrfs, "send"]
@@ -136,7 +139,8 @@ def copy(src, dst, options):
 		sender.extend(["-c", os.path.join(src, common)])
 	sender.append(old_snapshot)
 
-	pipe(sender, [options.btrfs, "receive", dst], options)
+	if not pipe(sender, [options.btrfs, "receive", dst], options):
+		return False
 
 	new_snapshot = os.path.join(dst, target)
 	if options.compare:
@@ -144,6 +148,7 @@ def copy(src, dst, options):
 		print_diff_files(filecmp.dircmp(old_snapshot, new_snapshot))
 
 	os.rename(new_snapshot, new_snapshot + options.good)
+	verbose(options, "copy OK", src, dst)
 	return True
 
 def copy_with_config(options):
