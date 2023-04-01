@@ -1,7 +1,5 @@
 #!/usr/bin/python3
-# https://github.com/jim-easterbrook/python-gphoto2/blob/main/examples/copy-files.py
 
-# Copyright (C) 2014-22  Jim Easterbrook  jim@jim-easterbrook.me.uk
 # Copyright (C) 2023     Stuart Pook https://www.pook.it
 #
 # This program is free software: you can redistribute it and/or modify
@@ -23,6 +21,7 @@ import os
 import sys
 import argparse
 import collections
+import time
 
 import gphoto2 as gp
 
@@ -31,14 +30,12 @@ suffixes = { 'jpg': 3, 'cr2': 1, 'raf': 0 }
 def list_camera_files(camera, path='/'):
     result = []
     # get files
-    gp_list = gp.check_result(
-        gp.gp_camera_folder_list_files(camera, path))
+    gp_list = camera.folder_list_files(path)
     for name, value in gp_list:
         result.append(os.path.join(path, name))
     # read folders
     folders = []
-    gp_list = gp.check_result(
-        gp.gp_camera_folder_list_folders(camera, path))
+    gp_list = camera.folder_list_folders(path)
     for name, value in gp_list:
         folders.append(name)
     # recurse over subfolders
@@ -76,33 +73,42 @@ def copy_photo(photo, path, dest_dir, camera):
     dest = os.path.join(dest_dir, photo + '.' + name.split('.')[1].lower())
     tmp = dest + '~'
     logging.debug("%s: copy %s to %s", photo, path, tmp)
-    camera_file = gp.check_result(gp.gp_camera_file_get(camera, folder, name, gp.GP_FILE_TYPE_NORMAL))
-    gp.check_result(gp.gp_file_save(camera_file, tmp))
+    camera_file = camera.file_get(folder, name, gp.GP_FILE_TYPE_NORMAL)
+    camera_file.save(tmp)
     logging.debug('rename(%s, %s)', tmp, dest)
     os.rename(tmp, dest)
+    return os.stat(dest).st_size
 
 def copy_files(camera_files, camera, dest_dir, seen_fp):
+    bytes = 0
     for photo, files in camera_files.items():
         def key(a):
             return suffixes.get(a.split('.')[1].lower())
         ordered = sorted(files, key=key)
-        copy_photo(photo=photo, path=ordered[0], dest_dir=dest_dir, camera=camera)
+        bytes = bytes + copy_photo(photo=photo, path=ordered[0], dest_dir=dest_dir, camera=camera)
         print(photo, file=seen_fp, flush=True)
+    return bytes
 
 def main(destination, seen_fn):
     locale.setlocale(locale.LC_ALL, 'C')
     seen = read_handled(seen_fn)
     logging.info("%d photos already seen", len(seen))
     gp.check_result(gp.use_python_logging())
-    camera = gp.check_result(gp.gp_camera_new())
-    gp.check_result(gp.gp_camera_init(camera))
+    # https://github.com/jim-easterbrook/python-gphoto2#object-oriented-interface
+    camera = gp.Camera()
+    logging.info("after gp_camera_new")
+    camera.init()
+    logging.info("after gp_camera_init")
     camera_files = regroup(list_camera_files(camera))
     logging.info("%d photos on camera", len(camera_files))
     unseen = {k: v for k, v in camera_files.items() if k not in seen}
     logging.info("%d new photos on camera", len(unseen))
     with open(seen_fn, 'a') as seen_fp:
-        copy_files(camera_files=unseen, camera=camera, dest_dir=destination, seen_fp=seen_fp)
-    gp.check_result(gp.gp_camera_exit(camera))
+        start_time = time.time()
+        bytes = copy_files(camera_files=unseen, camera=camera, dest_dir=destination, seen_fp=seen_fp)
+        duration = time.time() - start_time
+        logging.info("%d bytes in %0.1fs, %0.1f MiB/s", bytes, duration, bytes / duration / 1024 / 1024)
+    camera.exit()
     return 0
 
 if __name__ == "__main__":
@@ -112,7 +118,9 @@ if __name__ == "__main__":
             description="read photos from a PTP device with a record",
             formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     # parser.add_argument("--mode", default=0o666 & ~umask, type=int, help="mode for files")
-    parser.add_argument("-v", "--verbose", dest='loglevel', action='store_const', const='debug', default='info', help='set log level to info')
+    parser.set_defaults(loglevel='info')
+    parser.add_argument("-v", "--verbose", dest='loglevel', action='store_const', const='debug', help='set log level to debug')
+    parser.add_argument("--warn", dest='loglevel', action='store_const', const='warn', help='set log level to warn')
     parser.add_argument("-d", "--destination", default=".", help="directory to read into")
     parser.add_argument("--seen", default=os.path.expanduser("~/Syncthing/stuart/dynamic/seen-photos"), metavar="FILE", help="list of read photos")
 
@@ -121,6 +129,6 @@ if __name__ == "__main__":
     numeric_level = getattr(logging, loglevel.upper(), None)
     if not isinstance(numeric_level, int):
         raise ValueError('Invalid log level: %s' % loglevel)
-    logging.basicConfig(format=__file__ + ':%(levelname)s:%(name)s: %(message)s', level=numeric_level)
+    logging.basicConfig(format=os.path.basename(__file__) + ':%(levelname)s:%(name)s: %(message)s', level=numeric_level)
 
     sys.exit(main(seen_fn=args.seen, destination=args.destination))
