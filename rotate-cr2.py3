@@ -122,10 +122,15 @@ def main(argv):
 			print("%s: no %s in %s" % (myname(), x, shlex.quote(options.pp3)), file=sys.stderr)
 			raise
 		if crop['Enabled']:
-			w = int(crop['W']) - int(crop['X'])
-			h = int(crop['H']) - int(crop['Y'])
-			if w < h:
+			w = int(crop['W'])
+			h = int(crop['H'])
+			if w > h:
 				width, height = height, width
+				logging.debug("width %d height %d swap from %d %d", width, height, w, h)
+			else:
+				logging.debug("width %d height %d from %d %d", width, height, w, h)
+		else:
+			logging.debug("width %d height %d without crop", width, height)
 	else:
 		if not is_horizontal(cr2):
 			width, height = height, width
