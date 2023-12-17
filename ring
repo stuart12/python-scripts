@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+#!/usr/bin/python3 -P
 # -*- coding: utf-8 -*-
 # ring Copyright (C) 2011-2014, 2017,2020  Stuart Pook (http://www.pook.it/)
 # This program is free software: you can redistribute it and/or modify it under
@@ -476,6 +476,7 @@ def main():
 	parser.set_defaults(loglevel='warn')
 	parser.add_option("-v", "--verbose", "--debug", dest='loglevel', action="store_const", const='debug', help="debug loglevel")
 	parser.add_option("-l", "--loglevel", metavar="LEVEL", help="set logging level")
+	parser.add_option("--cache_filename", action="store_true", help="update and return cache file")
 
 	(options, args) = parser.parse_args()
 
@@ -489,7 +490,9 @@ def main():
 	logging.basicConfig(level=numeric_level)
 
 	with get_cache_file(options) as cache:
-		if options.dump:
+		if options.cache_filename:
+		    print(options.cache)
+		elif options.dump:
 			for line in cache:
 				print(line, end="")
 		elif not options.short_postscript and not options.full_postscript and not options.utf8 and not options.groff:
