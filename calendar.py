@@ -1,0 +1,133 @@
+#!/usr/bin/python3 -P
+# -*- coding: utf-8 -*-
+# calendar Copyright (C) 2023  Stuart Pook (http://www.pook.it/)
+# This program is free software: you can redistribute it and/or modify it under
+# the terms of the GNU General Public License as published by the Free Software
+# Foundation, either version 3 of the License, or (at your option) any later version.
+# This program is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+# FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+# download calendar
+
+import sys
+import os
+#import unicodedata
+import locale
+import requests
+import tempfile
+#import vobject
+import argparse
+import errno
+import time
+import stat
+import getpass
+import logging
+import hashlib
+
+
+def build_url(url,  server,  user,  calendar):
+    new_url = url if url else server + '/' + user + "/" + calendar + '/'
+    logging.debug("url %s", new_url)
+    return new_url
+
+def get_credentials(credentials):
+    logging.debug("reading credentials from %s", credentials)
+    with open(credentials) as f:
+        fields = f.readline().strip().split(':')
+        user = fields[0]
+        passwd = fields[1]
+        logging.debug("credentials user=%s hash(passwd)=%s", user, hashlib.blake2b(passwd.encode(), digest_size=10).hexdigest())
+        return (user, passwd)
+
+def get_cache_file(cache,  lifetime,  url,  credentials):
+
+    if cache:
+        try:
+            old = open(cache, "r")
+        except IOError as e:
+            if e.errno != errno.ENOENT:
+                raise e
+            logging.debug("no cache %s", cache)
+        else:
+            stat_buf = os.fstat(old.fileno())
+            age = time.time() -  stat_buf.st_mtime
+            if age <= lifetime:
+                logging.debug("reusing cache %s (age %.2f s)", cache, age)
+                return old
+            old.close()
+            mode = stat.S_IMODE(stat_buf.st_mode)
+            logging.debug("cache %s too old (mode %#o, age %.2f s)", cache, mode, age)
+
+        tmp = cache + ".tmp"
+        os.umask(0o77)
+        calendar = open(tmp, "w+")
+    else:
+        calendar = tempfile.TemporaryFile('w+')
+        tmp = None
+
+    r = requests.get(url, auth=credentials)
+    if r.status_code != 200:
+        logging.fatal("download from %s failed with %d", url, r.status_code)
+        sys.exit(7)
+
+    calendar.write(r.text)
+    calendar.seek(0)
+    if tmp:
+        os.rename(tmp, cache)
+    return calendar
+
+def format_calendar(cache):
+    for contact in vobject.readComponents(cache):
+        pass
+
+def main():
+    parser = argparse.ArgumentParser(description="download calendar",  formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser.set_defaults(loglevel='info')
+    parser.set_defaults(cache_filename=True)
+    parser.add_argument("-C", "--cache_lifetime", metavar="seconds", type=float, default=60 * 60 * 24, help="cache life time")
+    parser.add_argument("-r", "--retrieve", "-n", "--oldcache", action="store_const", const=0, dest='cache_lifetime',
+            help="consider cache is too old")
+    parser.add_argument("-q", "--usecache", "--quick", action="store_const", const=sys.maxsize, dest='cache_lifetime',
+            help="consider cache is up todate")
+    parser.add_argument("--dump", action="store_true", help="dump the raw contact list")
+    parser.add_argument("--print", dest="print_list", action="store_true", help="print")
+    parser.add_argument("--user", default=getpass.getuser(), help="username on server")
+    parser.add_argument("--server", default="http://localhost:37358", help="url etesync server")
+    parser.add_argument("--url", default=None, help="full url to download")
+    parser.add_argument("--calendar", default=os.environ.get('ETESYNC_CALENDAR'), help="calendar name")
+    parser.add_argument("--credentials", metavar="FILE",
+            default=os.path.expanduser('~/.local/share/etesync-dav/htpaswd'), help="etesync credentials")
+    parser.add_argument("--cache", default=os.path.expanduser('~/.calendar-cache'), metavar="FILE", help="file to cache contacts")
+    parser.add_argument("-v", "--verbose", "--debug", dest='loglevel', action="store_const", const='debug', help="debug loglevel")
+    parser.add_argument("-l", "--loglevel", metavar="LEVEL", help="set logging level")
+    parser.add_argument("--cache_filename", action="store_true", help="update and return cache file")
+
+    options = parser.parse_args()
+
+    #locale.setlocale(locale.LC_COLLATE, 'fr_FR.iso885915@euro')
+    locale.setlocale(locale.LC_ALL, '')
+    locale.setlocale(locale.LC_COLLATE, 'fr_FR.UTF-8')
+
+    numeric_level = getattr(logging, options.loglevel.upper(), None)
+    if not isinstance(numeric_level, int):
+        sys.exit('Invalid log level: %s' % options.loglevel)
+    logging.basicConfig(level=numeric_level)
+
+    credentials = get_credentials(options.credentials)
+    url = build_url(options.url,  options.server,  options.user,  options.calendar)
+    with get_cache_file(url=url,  lifetime=options.cache_lifetime,  credentials=credentials,  cache=options.cache) as cache:
+        if options.cache_filename:
+            print(options.cache)
+        elif options.dump:
+            for line in cache:
+                print(line, end="")
+        elif not options.short_postscript and not options.full_postscript and not options.utf8 and not options.groff:
+            show_contacts(cache, args, options)
+        else:
+            format_contacts(cache, options, args)
+
+if __name__ == "__main__":
+    main()
