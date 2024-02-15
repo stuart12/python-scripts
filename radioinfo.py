@@ -30,14 +30,20 @@ def verbose1(verbosity, *message):
     verbose(verbosity, 1, *message)
 
 default_search = "json/stations/bynameexact"
-default_server = "de1.api.radio-browser.info"
+default_server = "nl1.api.radio-browser.info"
 default_key = "url_resolved"
 default_bytes = 32000
 
 def geturl(name, server = default_server, search = default_search, read_bytes=default_bytes, verbosity=0, key=default_key):
     url = f"https://{server}/{search}/{urllib.parse.quote(name)}"
     verbose1(verbosity, url)
-    with urllib.request.urlopen(url) as f:
+    try:
+        response = urllib.request.urlopen(url)
+    except urllib.error.HTTPError as ex:
+        sys.exit(f"{myname()}: HTTPError {url}: {ex}")
+    except urllib.error.URLError as ex:
+        sys.exit(f"{myname()}: URLError {url}: {ex}")
+    with response as f:
         answer = json.loads(f.read(read_bytes).decode('utf8'))
         verbose1(verbosity, answer)
         try:
