@@ -83,6 +83,7 @@ def mqtt(delay, address, broker, user, password, topic, client_id):
     client.username_pw_set(user, password=password)
     logging.debug("connecting to MQTT broker %s as %s", broker, user)
     client.connect(broker)
+    client.loop_start()
     logging.info("connected to MQTT broker %s as %s", broker, user)
     send(client, address, delay, topic, mqttClient.MQTT_ERR_SUCCESS)
 
