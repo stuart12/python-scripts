@@ -58,6 +58,15 @@ def print_temperature(delay, address):
             print('')
         time.sleep(delay)
 
+def on_connect(client, userdata, flags, rc):
+    if rc == 0:
+        logging.debug("connected to mqtt broker %s", userdata)
+    else:
+        logging.warning("failed to connect to mqtt broker %s %d", userdata, rc)
+
+def on_disconnect(client, userdata, rc):
+    logging.warning("disconnected from mqtt broker %s %d", userdata, rc)
+
 def send(client, address, delay, topic, success):
     therms = get_thermometers(address)
     if len(therms) != 1:
@@ -70,10 +79,11 @@ def send(client, address, delay, topic, success):
         info = client.publish(topic, value, retain=True)
         if info.rc != success:
             logging.error("publish to %s of %f failed: %s", topic, value, info)
+            level = logging.INFO
         else:
-            logging.log(level, "published temperature %0.3f C", value)
+            logging.log(level, "published temperature %0.4f C", value)
+            level = logging.DEBUG
         time.sleep(delay) # FIXME: adjust delay dynamically
-        level = logging.DEBUG
 
 # https://pypi.org/project/paho-mqtt/#publishing
 # https://techtutorialsx.com/2017/04/14/python-publishing-messages-to-mqtt-topic/
@@ -81,6 +91,9 @@ def mqtt(delay, address, broker, user, password, topic, client_id):
     import paho.mqtt.client as mqttClient
     client = mqttClient.Client(client_id=client_id)
     client.username_pw_set(user, password=password)
+    client.user_data_set(broker)
+    client.on_connect = on_connect
+    client.on_disconnect = on_disconnect
     logging.debug("connecting to MQTT broker %s as %s", broker, user)
     client.connect(broker)
     client.loop_start()
