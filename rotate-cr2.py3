@@ -171,6 +171,7 @@ def main(argv):
 			print(line, end='', file=sys.stderr)
 		sys.exit(status)
 	setDateTime(cr2, options.output)
+	subprocess.check_call(['exiftool', '-overwrite_original', '-tagsFromFile', cr2, '-Orientation=1', '-quiet', options.output])
 
 if __name__ == "__main__":
 	main(sys.argv)
