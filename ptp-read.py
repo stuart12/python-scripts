@@ -132,3 +132,4 @@ if __name__ == "__main__":
     logging.basicConfig(format=os.path.basename(__file__) + ':%(levelname)s:%(name)s: %(message)s', level=numeric_level)
 
     sys.exit(main(seen_fn=args.seen, destination=args.destination))
+# gio mount -s gphoto2
