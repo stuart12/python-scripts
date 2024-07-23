@@ -79,9 +79,20 @@ def copy_photo(photo, path, dest_dir, camera):
     os.rename(tmp, dest)
     return os.stat(dest).st_size
 
-def copy_files(camera_files, camera, dest_dir, seen_fp):
+
+def check_space(minimum_disk_space, where):
+        statvfs = os.statvfs(where)
+        if statvfs.f_frsize * statvfs.f_bavail < minimum_disk_space:
+            print(f"less than {minimum_disk_space} bytes free, stopping")
+            return False
+        return True
+
+def copy_files(camera_files, camera, dest_dir, seen_fp, minimum_disk_space):
     bytes = 0
     for photo, files in camera_files.items():
+        if not check_space(minimum_disk_space, where=dest_dir):
+            return bytes
+
         def key(a):
             return suffixes.get(a.split('.')[1].lower())
         ordered = sorted(files, key=key)
@@ -89,7 +100,7 @@ def copy_files(camera_files, camera, dest_dir, seen_fp):
         print(photo, file=seen_fp, flush=True)
     return bytes
 
-def main(destination, seen_fn):
+def main(destination, seen_fn, minimum_disk_space):
     locale.setlocale(locale.LC_ALL, 'C')
     seen = read_handled(seen_fn)
     logging.info("%d photos already seen", len(seen))
@@ -105,7 +116,7 @@ def main(destination, seen_fn):
     logging.info("%d new photos on camera", len(unseen))
     with open(seen_fn, 'a') as seen_fp:
         start_time = time.time()
-        bytes = copy_files(camera_files=unseen, camera=camera, dest_dir=destination, seen_fp=seen_fp)
+        bytes = copy_files(camera_files=unseen, camera=camera, dest_dir=destination, seen_fp=seen_fp, minimum_disk_space=minimum_disk_space)
         duration = time.time() - start_time
         logging.info("%d bytes in %0.1fs, %0.1f MiB/s", bytes, duration, bytes / duration / 1024 / 1024)
     camera.exit()
@@ -123,6 +134,7 @@ if __name__ == "__main__":
     parser.add_argument("--warn", dest='loglevel', action='store_const', const='warn', help='set log level to warn')
     parser.add_argument("-d", "--destination", default=".", help="directory to read into")
     parser.add_argument("--seen", default=os.path.expanduser("~/Syncthing/stuart/dynamic/seen-photos"), metavar="FILE", help="list of read photos")
+    parser.add_argument("--space", "-s", type=int, default=150, metavar='MEBIBYTES', help="minimum disk space to continue")
 
     args = parser.parse_args()
     loglevel = args.loglevel
@@ -131,5 +143,5 @@ if __name__ == "__main__":
         raise ValueError('Invalid log level: %s' % loglevel)
     logging.basicConfig(format=os.path.basename(__file__) + ':%(levelname)s:%(name)s: %(message)s', level=numeric_level)
 
-    sys.exit(main(seen_fn=args.seen, destination=args.destination))
+    sys.exit(main(seen_fn=args.seen, destination=args.destination, minimum_disk_space=args.space * 1024 * 1024))
 # gio mount -s gphoto2
