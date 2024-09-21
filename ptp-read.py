@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 
-# Copyright (C) 2023     Stuart Pook https://www.pook.it
+# Copyright (C) 2024, Stuart Pook https://www.pook.it
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -22,6 +22,9 @@ import sys
 import argparse
 import collections
 import time
+import uuid
+import glob
+import subprocess
 
 import gphoto2 as gp
 
@@ -43,30 +46,48 @@ def list_camera_files(camera, path='/'):
         result.extend(list_camera_files(camera, os.path.join(path, name)))
     return result
         
-def wanted(fn):
+def wanted(fn, jpeg):
     folder, base = os.path.split(fn)
     root, directory = os.path.split(folder)
     fields = base.split('.')
-    if len(fields) == 2 and fields[1].lower() in suffixes:
+    if len(fields) != 2:
+        return None
+    suffix = fields[1].lower()
+    if suffix == 'jpg' or not jpeg and suffix in suffixes:
         return directory[4].lower() + directory[0:3] + fields[0][4:8]
     return None
         
-def regroup(camera_files):
+def regroup(camera_files, jpeg):
     # newlist = [[b, x] for x in camera_files if (b := wanted(x)) ]
     d = collections.defaultdict(list)
     for fn in camera_files:
-        w = wanted(fn)
+        w = wanted(fn=fn, jpeg=jpeg)
         if w:
             d[w].append(fn)
     return d
     # newlist = [[os.path.basename(x), x] for x in camera_files if "a" in x]
     
-def read_handled(path):
-    seen = set()
-    with open(path) as f:
-        for l in f.readlines():
-            seen.add(l.strip())
-    return seen
+class Seen:
+
+    def __init__(self, directory, jpeg):
+        self.directory = directory
+        self.prefix = ('jpg' if jpeg else 'raw') + '.'
+    
+    def read_handled(self):
+        seen = set()
+        fn = os.path.join(self.directory, self.prefix + '*')
+        logging.debug('glob file listing read photos: %s', fn)
+        for path in glob.iglob(fn):
+            with open(path) as f:
+                for l in f.readlines():
+                    seen.add(l.strip())
+        logging.info("%d %s photos already seen", len(seen), self.prefix)
+        return seen
+
+    def new_handled(self):
+        fn = os.path.join(self.directory, self.prefix + uuid.uuid4().hex)
+        logging.debug('new handled list: %s', fn)
+        return open(fn, mode='x')
 
 def copy_photo(photo, path, dest_dir, camera):
     folder, name = os.path.split(path)
@@ -100,25 +121,33 @@ def copy_files(camera_files, camera, dest_dir, seen_fp, minimum_disk_space):
         print(photo, file=seen_fp, flush=True)
     return bytes
 
-def main(destination, seen_fn, minimum_disk_space):
+def main(destination, jpeg, seen_directory, minimum_disk_space, dry_run):
+    ret_code = subprocess.call(['gio', 'mount',  '--unmount-scheme=gphoto2'])
+    logging.log(logging.DEBUG if ret_code == 0 else logging.WARNING, "gio unmount returned: %d", ret_code)
     locale.setlocale(locale.LC_ALL, 'C')
-    seen = read_handled(seen_fn)
-    logging.info("%d photos already seen", len(seen))
-    gp.check_result(gp.use_python_logging())
+    seen_object = Seen(jpeg=jpeg, directory=seen_directory)
+    seen = seen_object.read_handled()
+    gp.check_result(gp.use_python_logging(mapping={
+        gp.GP_LOG_ERROR   : logging.WARNING,
+        gp.GP_LOG_DEBUG   : logging.DEBUG - 1,
+        gp.GP_LOG_VERBOSE : logging.DEBUG - 3,
+        gp.GP_LOG_DATA    : logging.DEBUG - 6}))
     # https://github.com/jim-easterbrook/python-gphoto2#object-oriented-interface
     camera = gp.Camera()
     logging.info("after gp_camera_new")
     camera.init()
     logging.info("after gp_camera_init")
-    camera_files = regroup(list_camera_files(camera))
+    camera_files = regroup(list_camera_files(camera), jpeg=jpeg)
     logging.info("%d photos on camera", len(camera_files))
     unseen = {k: v for k, v in camera_files.items() if k not in seen}
     logging.info("%d new photos on camera", len(unseen))
-    with open(seen_fn, 'a') as seen_fp:
-        start_time = time.time()
-        bytes = copy_files(camera_files=unseen, camera=camera, dest_dir=destination, seen_fp=seen_fp, minimum_disk_space=minimum_disk_space)
-        duration = time.time() - start_time
-        logging.info("%d bytes in %0.1fs, %0.1f MiB/s", bytes, duration, bytes / duration / 1024 / 1024)
+    if not dry_run and len(unseen) > 0:
+        with seen_object.new_handled() as seen_fp:
+            start_time = time.time()
+            bytes = copy_files(camera_files=unseen, camera=camera, dest_dir=destination, seen_fp=seen_fp, minimum_disk_space=minimum_disk_space)
+            duration = time.time() - start_time
+            logging.info("%d bytes in %0.1fs, %0.1f MiB/s", bytes, duration, bytes / duration / 1024 / 1024)
+    logging.info("exiftool -if 'not $gps:all' -geotag ~/Syncthing/bluejay-tracks/202\\* -overwrite_original *.???")
     camera.exit()
     return 0
 
@@ -129,12 +158,14 @@ if __name__ == "__main__":
             description="read photos from a PTP device with a record",
             formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     # parser.add_argument("--mode", default=0o666 & ~umask, type=int, help="mode for files")
-    parser.set_defaults(loglevel='info')
+    parser.set_defaults(loglevel='debug')
     parser.add_argument("-v", "--verbose", dest='loglevel', action='store_const', const='debug', help='set log level to debug')
     parser.add_argument("--warn", dest='loglevel', action='store_const', const='warn', help='set log level to warn')
     parser.add_argument("-d", "--destination", default=".", help="directory to read into")
-    parser.add_argument("--seen", default=os.path.expanduser("~/Syncthing/stuart/dynamic/seen-photos"), metavar="FILE", help="list of read photos")
+    parser.add_argument("--seen", default=os.path.expanduser("~/Syncthing/stuart/dynamic/seen-photos.d"), metavar="DIRECTORY", help="directory of read photos")
     parser.add_argument("--space", "-s", type=int, default=150, metavar='MEBIBYTES', help="minimum disk space to continue")
+    parser.add_argument('-j', '--jpg', '--jpeg', action='store_true', help='retrieve jpg format')
+    parser.add_argument('-n', '--dryrun', '--dry-run', action='store_true', help='do not read')
 
     args = parser.parse_args()
     loglevel = args.loglevel
@@ -143,5 +174,8 @@ if __name__ == "__main__":
         raise ValueError('Invalid log level: %s' % loglevel)
     logging.basicConfig(format=os.path.basename(__file__) + ':%(levelname)s:%(name)s: %(message)s', level=numeric_level)
 
-    sys.exit(main(seen_fn=args.seen, destination=args.destination, minimum_disk_space=args.space * 1024 * 1024))
+    minimum_disk_space = args.space * 1024 * 1024
+    status = main(seen_directory=args.seen, destination=args.destination, jpeg=args.jpg, minimum_disk_space=minimum_disk_space, dry_run=args.dryrun)
+    sys.exit(status)
 # gio mount -s gphoto2
+# gio mount  --unmount-scheme=gphoto2
