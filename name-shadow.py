@@ -18,19 +18,25 @@ import shlex
 import logging
 import re
 
+def empty_if_none(s):
+    if s:
+        return s
+    return ''
+
 def transform_name(fn):
     fname,  suffix = os.path.splitext(fn)
     if not suffix:
         return None
-    sections = fname.split(' ',  1)
-    if len(sections) != 2:
-        return fn
 
-    description = sections[1]
-    m = re.match(r"(.*) \(\d\d\d\d-\d\d-\d\d( \d\d:\d\d)?\)", description)
-    if m:
-        description = m.group(1)
-    return description + ' ' + sections[0] + suffix
+    m = re.match(r"^(?P<fn>[^ ]+)(?:(?P<space> )(?P<text>[^:]+))?(?: \(\d\d\d\d[:-]\d\d[:-]\d\d( \d\d:\d\d)?\))?(?P<suffix>\.[a-z0-9][a-z0-9][a-z0-9])$", fn)
+
+    if not m:
+        logging.fatal("match failed on: %s", fn)
+
+    name = empty_if_none(m.group('text')) + empty_if_none(m.group('space')) + m.group('fn') + m.group('suffix')
+
+    logging.debug("%s mapped to %s", fn, name)
+    return name
 
 def check_and_update(src, dst_dir,  new_name):
     dst = os.path.join(dst_dir,  new_name)
