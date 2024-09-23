@@ -46,9 +46,9 @@ def check_and_update(src, dst_dir,  new_name):
     except FileNotFoundError:
             pass
     else:
-        logging.debug("rm %s", shlex.quote(dst))
+        logging.info("rm %s", shlex.quote(dst))
         os.unlink(dst)
-    logging.debug("ln %s %s",  shlex.quote(src),  shlex.quote(dst))
+    logging.info("ln %s %s",  shlex.quote(src),  shlex.quote(dst))
     os.link(src,  dst)
     
 def rm_extra(dst_dir,  wanted):
@@ -103,8 +103,9 @@ def shadow(src_dir, dst_dir):
 def main():
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter,
             description="make a shadow copy inversing the filename")
-    parser.set_defaults(loglevel='info')
+    parser.set_defaults(loglevel='warning')
     parser.add_argument("-v", "--verbose", dest='loglevel', action="store_const", const='debug', help="debug loglevel")
+    parser.add_argument("-i", "--info", dest='loglevel', action="store_const", const='info', help="info loglevel")
     parser.add_argument("-l", "--loglevel", metavar="LEVEL", help="set logging level")
 
     parser.add_argument('source', help='directory to shadow')
