@@ -23,6 +23,7 @@ import tempfile
 import shlex # python 3.3 or later
 import configparser
 import re
+import signal
 try:
 	import exifread
 except ImportError:
@@ -165,7 +166,11 @@ def main(argv):
 	logging.debug("running %s" % " ".join(map(shlex.quote, command)))
 	status = subprocess.call(command, stdout=open("/dev/null", "w"), stderr=stderr)
 	if status:
-		print(myname()+ ":", "command failed (%d):" % status, " ".join(shlex.quote(c) for c in command), file=sys.stderr)
+		command =  " ".join(shlex.quote(c) for c in command)
+		if status > 0:
+			logging.fatal("command failed (%d): %s", status, command)
+		else:
+			logging.fatal("command killed with %s: %s", signal.Signals(-status).name, command)
 		stderr.seek(0)
 		for line in stderr:
 			print(line, end='', file=sys.stderr)
