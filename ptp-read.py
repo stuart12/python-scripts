@@ -148,7 +148,7 @@ def main(destination, jpeg, seen_directory, minimum_disk_space, dry_run):
             duration = time.time() - start_time
             logging.info("%d bytes in %0.1fs, %0.1f MiB/s", bytes, duration, bytes / duration / 1024 / 1024)
     logging.info("exiftool -if 'not $gps:all' -geotag ~/Syncthing/bluejay-tracks/202\\* -overwrite_original *.???")
-    camera.exit()
+#    camera.exit()
     return 0
 
 if __name__ == "__main__":
