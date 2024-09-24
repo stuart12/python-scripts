@@ -158,7 +158,7 @@ if __name__ == "__main__":
             description="read photos from a PTP device with a record",
             formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     # parser.add_argument("--mode", default=0o666 & ~umask, type=int, help="mode for files")
-    parser.set_defaults(loglevel='debug')
+    parser.set_defaults(loglevel='info')
     parser.add_argument("-v", "--verbose", dest='loglevel', action='store_const', const='debug', help='set log level to debug')
     parser.add_argument("--warn", dest='loglevel', action='store_const', const='warn', help='set log level to warn')
     parser.add_argument("-d", "--destination", default=".", help="directory to read into")
