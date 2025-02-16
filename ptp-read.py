@@ -31,11 +31,11 @@ import gphoto2 as gp
 suffixes = { 'jpg': 3, 'cr2': 1, 'raf': 0 }
 
 def list_camera_files(camera, path='/'):
-    result = []
+    result = {}
     # get files
     gp_list = camera.folder_list_files(path)
     for name, value in gp_list:
-        result.append(os.path.join(path, name))
+        result[name] = os.path.join(path, name)
     # read folders
     folders = []
     gp_list = camera.folder_list_folders(path)
@@ -43,7 +43,7 @@ def list_camera_files(camera, path='/'):
         folders.append(name)
     # recurse over subfolders
     for name in folders:
-        result.extend(list_camera_files(camera, os.path.join(path, name)))
+        result.update(list_camera_files(camera, os.path.join(path, name)))
     return result
         
 def wanted(fn, jpeg):
@@ -137,7 +137,7 @@ def main(destination, jpeg, seen_directory, minimum_disk_space, dry_run):
     logging.info("after gp_camera_new")
     camera.init()
     logging.info("after gp_camera_init")
-    camera_files = regroup(list_camera_files(camera), jpeg=jpeg)
+    camera_files = regroup(list_camera_files(camera).values(), jpeg=jpeg)
     logging.info("%d photos on camera", len(camera_files))
     unseen = {k: v for k, v in camera_files.items() if k not in seen}
     logging.info("%d new photos on camera", len(unseen))
