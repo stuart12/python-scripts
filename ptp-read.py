@@ -30,31 +30,35 @@ import gphoto2 as gp
 
 suffixes = { 'jpg': 3, 'cr2': 1, 'raf': 0 }
 
-def list_camera_files(camera, path='/'):
+def make_name(directory, fname):
+    return directory[4].lower() + directory[0:3] + fname[4:8]
+
+def list_camera_files(camera, path='/', subdir='/'):
     result = {}
     # get files
-    gp_list = camera.folder_list_files(path)
+    where = os.path.join(path, subdir)
+    gp_list = camera.folder_list_files(where)
     for name, value in gp_list:
-        result[name] = os.path.join(path, name)
+        result[make_name(subdir, name) +'.' + name.split('.')[1].lower()] = [where, name]
     # read folders
     folders = []
-    gp_list = camera.folder_list_folders(path)
+    gp_list = camera.folder_list_folders(where)
     for name, value in gp_list:
         folders.append(name)
     # recurse over subfolders
-    for name in folders:
-        result.update(list_camera_files(camera, os.path.join(path, name)))
+    for folder in folders:
+        result.update(list_camera_files(camera, where, folder))
     return result
         
 def wanted(fn, jpeg):
-    folder, base = os.path.split(fn)
+    folder, base = fn
     root, directory = os.path.split(folder)
     fields = base.split('.')
     if len(fields) != 2:
         return None
     suffix = fields[1].lower()
     if suffix == 'jpg' or not jpeg and suffix in suffixes:
-        return directory[4].lower() + directory[0:3] + fields[0][4:8]
+        return make_name(directory, fields[0])
     return None
         
 def regroup(camera_files, jpeg):
@@ -89,16 +93,22 @@ class Seen:
         logging.debug('new handled list: %s', fn)
         return open(fn, mode='x')
 
-def copy_photo(photo, path, dest_dir, camera):
-    folder, name = os.path.split(path)
-    dest = os.path.join(dest_dir, photo + '.' + name.split('.')[1].lower())
+def copy_photo_dest(path, dest, camera):
+    folder, name = path
     tmp = dest + '~'
-    logging.debug("%s: copy %s to %s", photo, path, tmp)
+    logging.debug("file_get %s/%s", folder, name)
     camera_file = camera.file_get(folder, name, gp.GP_FILE_TYPE_NORMAL)
+    logging.debug("save to %s", tmp)
     camera_file.save(tmp)
     logging.debug('rename(%s, %s)', tmp, dest)
     os.rename(tmp, dest)
     return os.stat(dest).st_size
+
+
+def copy_photo(photo, path, dest_dir, camera):
+    folder, name = path
+    dest = os.path.join(dest_dir, photo + '.' + name.split('.')[1].lower())
+    return copy_photo_dest(path, dest, camera)
 
 
 def check_space(minimum_disk_space, where):
@@ -115,13 +125,31 @@ def copy_files(camera_files, camera, dest_dir, seen_fp, minimum_disk_space):
             return bytes
 
         def key(a):
-            return suffixes.get(a.split('.')[1].lower())
+            return suffixes.get(a[1].split('.')[1].lower())
         ordered = sorted(files, key=key)
         bytes = bytes + copy_photo(photo=photo, path=ordered[0], dest_dir=dest_dir, camera=camera)
         print(photo, file=seen_fp, flush=True)
     return bytes
 
-def main(destination, jpeg, seen_directory, minimum_disk_space, dry_run):
+
+def read_corresponding_jpegs(files_on_camera, existing, destination, camera):
+    os.listdir(destination)
+    logging.info('listing %s for %s', existing, files_on_camera.popitem())
+    bytes = 0
+    for raf in os.listdir(existing):
+        stem, suffix = raf.split('.')
+        jpeg = f"{stem}.jpg"
+        on_camera = files_on_camera.get(jpeg)
+        if on_camera:
+            dst = os.path.join(destination, jpeg)
+            logging.info('copying %s/%s to %s', on_camera[0], on_camera[1], dst)
+            bytes = bytes + copy_photo_dest(on_camera, dst, camera)
+        else:
+            logging.info('%s not found for %s', jpeg, raf)
+    return bytes
+
+
+def main(destination, jpeg, seen_directory, minimum_disk_space, read_jpegs, dry_run):
     ret_code = subprocess.call(['gio', 'mount',  '--unmount-scheme=gphoto2'])
     logging.log(logging.DEBUG if ret_code == 0 else logging.WARNING, "gio unmount returned: %d", ret_code)
     locale.setlocale(locale.LC_ALL, 'C')
@@ -137,16 +165,21 @@ def main(destination, jpeg, seen_directory, minimum_disk_space, dry_run):
     logging.info("after gp_camera_new")
     camera.init()
     logging.info("after gp_camera_init")
-    camera_files = regroup(list_camera_files(camera).values(), jpeg=jpeg)
-    logging.info("%d photos on camera", len(camera_files))
-    unseen = {k: v for k, v in camera_files.items() if k not in seen}
-    logging.info("%d new photos on camera", len(unseen))
-    if not dry_run and len(unseen) > 0:
-        with seen_object.new_handled() as seen_fp:
-            start_time = time.time()
-            bytes = copy_files(camera_files=unseen, camera=camera, dest_dir=destination, seen_fp=seen_fp, minimum_disk_space=minimum_disk_space)
-            duration = time.time() - start_time
-            logging.info("%d bytes in %0.1fs, %0.1f MiB/s", bytes, duration, bytes / duration / 1024 / 1024)
+    files = list_camera_files(camera)
+    logging.info("%d photos on camera", len(files))
+    start_time = time.time()
+    if read_jpegs:
+        bytes = read_corresponding_jpegs(files_on_camera=files, destination=destination, existing=read_jpegs, camera=camera)
+    else:
+        camera_files = regroup(files.values(), jpeg=jpeg)
+        logging.info("%d photos on camera", len(camera_files))
+        unseen = {k: v for k, v in camera_files.items() if k not in seen}
+        logging.info("%d new photos on camera", len(unseen))
+        if not dry_run and len(unseen) > 0:
+            with seen_object.new_handled() as seen_fp:
+                bytes = copy_files(camera_files=unseen, camera=camera, dest_dir=destination, seen_fp=seen_fp, minimum_disk_space=minimum_disk_space)
+    duration = time.time() - start_time
+    logging.info("%d bytes in %0.1fs, %0.1f MiB/s", bytes, duration, bytes / duration / 1024 / 1024)
     logging.info("exiftool -if 'not $gps:all' -geotag ~/Syncthing/bluejay-tracks/202\\* -overwrite_original *.???")
 #    camera.exit()
     return 0
@@ -165,6 +198,7 @@ if __name__ == "__main__":
     parser.add_argument("--seen", default=os.path.expanduser("~/Syncthing/stuart/dynamic/seen-photos.d"), metavar="DIRECTORY", help="directory of read photos")
     parser.add_argument("--space", "-s", type=int, default=150, metavar='MEBIBYTES', help="minimum disk space to continue")
     parser.add_argument('-j', '--jpg', '--jpeg', action='store_true', help='retrieve jpg format')
+    parser.add_argument('--read_jpegs', default=None, help='retrieve corresponding jpeg')
     parser.add_argument('-n', '--dryrun', '--dry-run', action='store_true', help='do not read')
 
     args = parser.parse_args()
@@ -175,7 +209,10 @@ if __name__ == "__main__":
     logging.basicConfig(format=os.path.basename(__file__) + ':%(levelname)s:%(name)s: %(message)s', level=numeric_level)
 
     minimum_disk_space = args.space * 1024 * 1024
-    status = main(seen_directory=args.seen, destination=args.destination, jpeg=args.jpg, minimum_disk_space=minimum_disk_space, dry_run=args.dryrun)
+    status = main(
+        seen_directory=args.seen, destination=args.destination, jpeg=args.jpg, minimum_disk_space=minimum_disk_space,
+        read_jpegs=args.read_jpegs,
+        dry_run=args.dryrun)
     sys.exit(status)
 # gio mount -s gphoto2
 # gio mount  --unmount-scheme=gphoto2
