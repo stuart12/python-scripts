@@ -21,6 +21,8 @@ def myname():
 import argparse
 import urllib.request
 import json
+import random
+import dns.resolver
 
 def verbose(verbosity, level, *message):
     if verbosity >= level:
@@ -30,26 +32,40 @@ def verbose1(verbosity, *message):
     verbose(verbosity, 1, *message)
 
 default_search = "json/stations/bynameexact"
-default_server = "all.api.radio-browser.info"
+default_srv_record = "_api._tcp.radio-browser.info"
 default_key = "url_resolved"
 default_bytes = 32000
 
-def geturl(name, server = default_server, search = default_search, read_bytes=default_bytes, verbosity=0, key=default_key):
-    url = f"https://{server}/{search}/{urllib.parse.quote(name)}"
-    verbose1(verbosity, url)
-    try:
-        response = urllib.request.urlopen(url)
-    except urllib.error.HTTPError as ex:
-        sys.exit(f"{myname()}: HTTPError {url}: {ex}")
-    except urllib.error.URLError as ex:
-        sys.exit(f"{myname()}: URLError {url}: {ex}")
-    with response as f:
-        answer = json.loads(f.read(read_bytes).decode('utf8'))
-        verbose1(verbosity, answer)
+
+def get_servers(srv_record, verbosity):
+    srv_records = list(dns.resolver.resolve(srv_record, 'SRV'))
+    verbose1(verbosity, "srv_records count", len(srv_records))
+    random.shuffle(srv_records)
+    return [f"{str(record.target).rstrip('.')}:{record.port}" for record in srv_records]
+
+
+def geturl(name, srv_record = default_srv_record, search = default_search, read_bytes=default_bytes, verbosity=0, key=default_key):
+    servers = get_servers(srv_record, verbosity)
+    error = f"no servers from {srv_record}"
+    for server in servers:
+        url = f"https://{server}/{search}/{urllib.parse.quote(name)}"
+        verbose1(verbosity, url)
         try:
-            return answer[0][key]
-        except KeyError as ex:
-            sys.exit(f"{myname()}: for \"{name}\" no {key} in {answer}")
+            response = urllib.request.urlopen(url)
+        except urllib.error.HTTPError as ex:
+            error = f"HTTPError {url}: {ex}"
+        except urllib.error.URLError as ex:
+            error = f"URLError {url}: {ex}"
+        with response as f:
+            answer = json.loads(f.read(read_bytes).decode('utf8'))
+            verbose1(verbosity, answer)
+            try:
+                return answer[0][key]
+            except KeyError as ex:
+                error = f"for \"{name}\" no {key} in {answer}"
+    verbosity1(verbosity, "for", server, "failed", error)
+    sys.exit(f"{myname()}: {error}")
+
 
 def main():
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter,
@@ -57,7 +73,7 @@ def main():
 
     parser.add_argument("-v", "--verbosity", action="count", default=0, help="increase output verbosity")
     parser.add_argument("--search", metavar="REQUEST", default=default_search, help="search request")
-    parser.add_argument("--server", metavar="SERVER", default=default_server, help="server")
+    parser.add_argument("--srv", metavar="SRV_RECORD", default=default_srv_record, help="SRV for api hosts")
     parser.add_argument("--key", default=default_key, help="key in Struct Station")
     parser.add_argument("--read", metavar="BYTES", default=default_bytes, type=int, help="size of read for result")
 
@@ -66,7 +82,7 @@ def main():
     options = parser.parse_args()
     for name in options.names:
         verbose1(options.verbosity, "name:", name)
-        print(geturl(name, options.server, options.search, options.read, options.verbosity, key=options.key))
+        print(geturl(name, options.srv, options.search, options.read, options.verbosity, key=options.key))
 
 if __name__ == "__main__":
     main()
