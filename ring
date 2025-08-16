@@ -260,8 +260,8 @@ def show_contacts(vcal, args, options):
 #					break express
 #	eclose(evolution, errors)
 
-def build_url(options):
-	url = options.url if options.url else options.server + '/' + options.user + "/" + options.addressbook + '/'
+def build_url(options, user):
+	url = options.url if options.url else options.server + '/' + user + "/" + options.addressbook + '/'
 	logging.debug("url %s", url)
 	return url
 
@@ -300,8 +300,9 @@ def get_cache_file(options):
 		contacts = tempfile.TemporaryFile('w+')
 		tmp = None
 
-	url = build_url(options)
-	r = requests.get(url, auth=get_credentials(options))
+	credentials = get_credentials(options)
+	url = build_url(options, credentials[0])
+	r = requests.get(url, auth=credentials)
 	if r.status_code != 200:
 		logging.fatal("download from %s failed with %d", url, r.status_code)
 		sys.exit(7)
@@ -464,7 +465,6 @@ def main():
 	parser.add_option("--dump", action="store_true", help="dump the raw contact list")
 	parser.add_option("--print", dest="print_list", action="store_true", help="print")
 	parser.add_option("--text_size", type='float', metavar="points", help="text size")
-	parser.add_option("--user", default=os.environ.get('ETESYNC_USER') or getpass.getuser(), help="username on server [%default]")
 	parser.add_option("--server", default="http://localhost:37358", help="url etesync server [%default]")
 	parser.add_option("--url", default=None, help="full url to download [%default]")
 	parser.add_option("--addressbook", default=os.environ['ETESYNC'], help="address name [%default]")
