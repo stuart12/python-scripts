@@ -464,7 +464,7 @@ def main():
 	parser.add_option("--dump", action="store_true", help="dump the raw contact list")
 	parser.add_option("--print", dest="print_list", action="store_true", help="print")
 	parser.add_option("--text_size", type='float', metavar="points", help="text size")
-	parser.add_option("--user", default=getpass.getuser(), help="username on server")
+	parser.add_option("--user", default=os.environ.get('ETESYNC_USER') or getpass.getuser(), help="username on server [%default]")
 	parser.add_option("--server", default="http://localhost:37358", help="url etesync server [%default]")
 	parser.add_option("--url", default=None, help="full url to download [%default]")
 	parser.add_option("--addressbook", default=os.environ['ETESYNC'], help="address name [%default]")
