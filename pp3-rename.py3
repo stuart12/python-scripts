@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 # vim: set shiftwidth=4 tabstop=4 noexpandtab copyindent preserveindent softtabstop=0 
 # Rename pp3 side car files if their root file has been renamed
-# Copyright (C) 2015 Stuart Pook (http://www.pook.it)
+# Copyright (C) 2015, 2025 Stuart Pook (http://www.pook.it)
 #
 # This program is free software: you can redistribute it and/or modify it under
 # the terms of the GNU General Public License as published by the Free Software
@@ -44,6 +44,7 @@ def fix(directory, options):
 		verbose(options, slaves)
 	for (key, fn) in slaves:
 		text = mapping.get(key)
+		full_fn = os.path.join(directory, fn)
 		if text:
 			new_fn = key[0] + text + "." + key[1] + "." + options.slave
 			if fn != new_fn:
@@ -51,9 +52,9 @@ def fix(directory, options):
 				if not options.dryrun:
 					os.rename(fn, new_fn)
 		else:
-			verbose(options, "remove orphan slave", shlex.quote(fn))
+			verbose(options, "remove orphan slave", shlex.quote(full_fn))
 			if not options.dryrun:
-				os.remove(fn)
+				os.remove(full_fn)
 
 def main():
 	parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
