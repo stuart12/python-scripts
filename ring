@@ -151,7 +151,7 @@ def format_contact(contact, troff, min_pager, options):
 			for note in contact.contents[what]:
 				if len(note.value):
 					if done1:
-						logging.debug("%s has more than 1 %s %s %d", nv, what,  out, note.value)
+						logging.debug("%s has more than 1 %s %s %s", nv, what, out, note.value)
 						out += or_mark
 					else:
 						out += ' ('
