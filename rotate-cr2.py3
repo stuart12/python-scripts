@@ -96,6 +96,7 @@ def main(argv):
     parser.add_argument("--icc", default=None, metavar="ICC filename", help="ICC colour profile for image [%default]")
     parser.add_argument("-n", "--dryrun", action="store_true", help="dryrun")
     parser.add_argument("--quality", type=int, default=40, help="JPEG quality [%default]")
+    parser.add_argument("--chroma", type=int, default=3, help="JPEG chroma subsampling parameter [%default]")
     parser.add_argument("--height", type=int, help="height [%default]")
     parser.add_argument("--width", type=int, help="width [%default]")
     parser.add_argument("--output", help="output JPEG file")
@@ -144,6 +145,7 @@ def main(argv):
 
     command = [ "rawtherapee-cli", "-Y"]
     command.append("-j%d" % options.quality)
+    command.append("-js%d" % options.chroma)
     command.append("-d")
     if options.pp3:
         command.extend(["-p", options.pp3])
