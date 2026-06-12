@@ -94,7 +94,6 @@ def main():
             help="consider cache is up todate")
     parser.add_argument("--dump", action="store_true", help="dump the raw contact list")
     parser.add_argument("--print", dest="print_list", action="store_true", help="print")
-    parser.add_argument("--user", default=getpass.getuser(), help="username on server")
     parser.add_argument("--server", default="http://localhost:37358", help="url etesync server")
     parser.add_argument("--url", default=None, help="full url to download")
     parser.add_argument("--calendar", default=os.environ.get('ETESYNC_CALENDAR'), help="calendar name")
@@ -117,7 +116,7 @@ def main():
     logging.basicConfig(level=numeric_level)
 
     credentials = get_credentials(options.credentials)
-    url = build_url(options.url,  options.server,  options.user,  options.calendar)
+    url = build_url(options.url, options.server, credentials[0], options.calendar)
     with get_cache_file(url=url,  lifetime=options.cache_lifetime,  credentials=credentials,  cache=options.cache) as cache:
         if options.cache_filename:
             print(options.cache)
