@@ -113,37 +113,25 @@ def main(argv):
 
     width = options.width
     height = options.height
-    if options.pp3:
-        config = configparser.ConfigParser()
-        with open(options.pp3) as f:
-            config.read_file(f)
-        try:
-            crop = config['Crop']
-        except KeyError as x:
-            print("%s: no %s in %s" % (myname(), x, shlex.quote(options.pp3)), file=sys.stderr)
-            raise
-        if crop['Enabled']:
-            w = int(crop['W'])
-            h = int(crop['H'])
-            if w > h:
-                width, height = height, width
-                logging.debug("width %d height %d swap from %d %d", width, height, w, h)
-            else:
-                logging.debug("width %d height %d from %d %d", width, height, w, h)
-        else:
-            logging.debug("width %d height %d without crop", width, height)
-    else:
-        if not is_horizontal(cr2):
-            width, height = height, width
 
     pp3 = tempfile.NamedTemporaryFile(mode='w+', suffix='.pp3', delete=True)
     print("[Resize]", file=pp3)
-    if width and height:
+
+    if width and width > 0 and not height:
+        # output device can be rotated and zoomed (phone or tablet)
+        print("Enabled=true", file=pp3)
+        print("Method=Lanczos", file=pp3)
+        print("AppliesTo=Cropped area", file=pp3)
+        print("ShortEdge=%d" % width, file=pp3)
+        print("DataSpecified=5", file=pp3)
+        logging.debug("rotatable: short_edge <= %d quality %d", width, options.quality)
+    elif width and height:
         print("Enabled=true", file=pp3)
         print("Method=Lanczos", file=pp3)
         print("AppliesTo=Cropped area", file=pp3)
         print("Width=%d" % width, file=pp3)
         print("Height=%d" % height, file=pp3)
+        print("DataSpecified=3", file=pp3)
     else:
         print("Enabled=false", file=pp3)
     print("[LensProfile]",  file=pp3)
