@@ -135,6 +135,8 @@ def format_contact(contact, troff, min_pager, options):
 		except KeyError:
 			pass
 		v = address.value
+		if str(v).startswith('geo:'):
+			continue
 		for v in (v.box, v.extended, v.street, v.code, v.city, v.region, v.country):
 			if len(v) > 0:
 				if len(tag):
