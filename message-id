@@ -1,0 +1,127 @@
+#!/usr/bin/python3 -BP
+# -*- coding: utf-8 -*-
+# calendar Copyright (C) 2026  Stuart Pook (http://www.pook.it/)
+# This program is free software: you can redistribute it and/or modify it under
+# the terms of the GNU General Public License as published by the Free Software
+# Foundation, either version 3 of the License, or (at your option) any later version.
+# This program is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+# FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+import sys
+import os
+import mailbox
+import argparse
+import logging as do_not_use
+import pathlib
+import re
+import shlex
+
+logger = do_not_use.getLogger(__name__)
+
+def set_logging_level(loglevel: int) -> None:
+    script_name = pathlib.Path(sys.argv[0]).name
+    do_not_use.basicConfig(
+        level=do_not_use.WARNING,
+        format=f"{script_name}:%(levelname)s:%(name)s:%(message)s",
+        force=True,
+    )
+    logger.setLevel(loglevel)
+    
+
+def error(message: str) -> None:
+    logger.critical(message)
+    sys.exit(8)
+    
+    
+def print_id(id: str, ids: set[str]) -> bool:
+    count = len(ids)
+    ids.add(id)
+    print(id)
+    if len(ids) != count + 1:
+        logger.warning("id %s is a duplicate", id)
+        return False
+    return True
+
+
+def process(mbox: str) -> bool:
+    decrypted_regex = re.compile(r'\s*<decrypted-(\d{13})-(.*)>')
+    cleartex_regext = re.compile(r'\s*<(.*)>')
+    firstline = True
+    ok = True
+    ids = set()
+    
+    timestamp_regex = re.compile(r'decrypted-(\d{13})')
+    for m in mailbox.mbox(mbox):
+        mid = m['Message-ID']
+        if not mid:
+            fb = "".join((m['From'] + m['Date'] + m['Subject']).split())
+            logger.debug("using fake message-id %s", fb)
+            ok = print_id(fb, ids) and ok
+            continue
+        if firstline:
+            firstline = False
+            match = decrypted_regex.match(mid)
+            if match:
+                timestamp = match[1]
+            else:
+                timestamp = None
+                match = cleartex_regext.match(mid)
+        elif timestamp:
+            match = decrypted_regex.match(mid)
+            if not match:
+                logger.warning("could not find message-id: %s", shlex.quote(mid))
+                ok = False
+                continue
+            if timestamp != match[1]:
+                logger.warning(f"timestamp changed {timestamp} {match[1]} with {match[2]}")
+                ok = False
+        else:
+            match = cleartex_regext.match(mid)
+        ok = print_id(match.groups()[-1], ids) and ok
+    return ok
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="extract message-id from a thunderbord mailbox",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser.set_defaults(loglevel='info')
+    parser.set_defaults(cache_filename=True)
+    parser.add_argument(
+        "-C", "--cache_lifetime", metavar="seconds", type=float, default=60 * 60 * 24, help="cache life time")
+    parser.add_argument(
+        "-r", "--retrieve", "-n", "--oldcache", action="store_const", const=0, dest='cache_lifetime',
+        help="consider cache is too old")
+    parser.add_argument("-q", "--usecache", "--quick", action="store_const", const=sys.maxsize, dest='cache_lifetime',
+        help="consider cache is up todate")
+    parser.add_argument("--dump", action="store_true", help="dump the raw contact list")
+    parser.add_argument("--print", dest="print_list", action="store_true", help="print")
+    parser.add_argument("--server", default="http://localhost:37358", help="url etesync server")
+    parser.add_argument("--url", default=None, help="full url to download")
+    parser.add_argument("--calendar", default=os.environ.get('ETESYNC_CALENDAR'), help="calendar name")
+    parser.add_argument(
+        "--credentials", metavar="FILE",
+        default=os.path.expanduser('~/.local/share/etesync-dav/htpaswd'), help="etesync credentials")
+    parser.add_argument(
+        "--cache", default=os.path.expanduser('~/.calendar-cache'), metavar="FILE", help="file to cache contacts")
+    parser.add_argument(
+        "-v", "--verbose", "--debug", dest='loglevel', action="store_const", const='debug', help="debug loglevel")
+    parser.add_argument("-l", "--loglevel", metavar="LEVEL", help="set logging level")
+    parser.add_argument("--cache_filename", action="store_true", help="update and return cache file")
+    parser.add_argument('filenames', nargs=argparse.REMAINDER, help='files')
+
+    options = parser.parse_args()
+
+    set_logging_level(getattr(do_not_use, options.loglevel.upper(), None))
+    
+    ok = True
+    for mbox in options.filenames:
+        ok = process(mbox) and ok
+    return ok
+
+
+if __name__ == "__main__":
+    sys.exit(0 if main() else 2)
