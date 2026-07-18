@@ -47,7 +47,8 @@ def print_id(id: str, ids: set[str]) -> bool:
 
 
 def process(mbox: str) -> bool:
-    regex = None
+    decrypted_regex = re.compile(r'\s*<decrypted-(\d{13})-(.*)>')
+    cleartex_regext = re.compile(r'\s*<(.*)>')
     ok = True
     ids = set()
     
@@ -57,18 +58,13 @@ def process(mbox: str) -> bool:
             id = "".join((m['From'] + m['Date'] + m['Subject']).split())
             logger.debug("using fake message-id %s", id)
         else:
-            if regex is None:
-                regex = re.compile(r'\s*<decrypted-(\d{13})-(.*)>')
-                match = regex.match(mid)
+            match = decrypted_regex.match(mid)
+            if match is None:
+                match = cleartex_regext.match(mid)
                 if not match:
-                    regex = re.compile(r'\s*<(.*)>')
-                    match = regex.match(mid)
-            else:
-                match = regex.match(mid)
-            if not match:
-                logger.error(f"no match for {mid}")
-                ok = False
-                continue
+                    logger.warning("could not match message-id: %s", shlex.quote(mid))
+                    ok = False
+                    continue
             id = match.groups()[-1]
         ok = print_id(id, ids) and ok
     return ok
