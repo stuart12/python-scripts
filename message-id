@@ -47,40 +47,30 @@ def print_id(id: str, ids: set[str]) -> bool:
 
 
 def process(mbox: str) -> bool:
-    decrypted_regex = re.compile(r'\s*<decrypted-(\d{13})-(.*)>')
-    cleartex_regext = re.compile(r'\s*<(.*)>')
-    firstline = True
+    regex = None
     ok = True
     ids = set()
     
-    timestamp_regex = re.compile(r'decrypted-(\d{13})')
     for m in mailbox.mbox(mbox):
         mid = m['Message-ID']
         if not mid:
-            fb = "".join((m['From'] + m['Date'] + m['Subject']).split())
-            logger.debug("using fake message-id %s", fb)
-            ok = print_id(fb, ids) and ok
-            continue
-        if firstline:
-            firstline = False
-            match = decrypted_regex.match(mid)
-            if match:
-                timestamp = match[1]
+            id = "".join((m['From'] + m['Date'] + m['Subject']).split())
+            logger.debug("using fake message-id %s", id)
+        else:
+            if regex is None:
+                regex = re.compile(r'\s*<decrypted-(\d{13})-(.*)>')
+                match = regex.match(mid)
+                if not match:
+                    regex = re.compile(r'\s*<(.*)>')
+                    match = regex.match(mid)
             else:
-                timestamp = None
-                match = cleartex_regext.match(mid)
-        elif timestamp:
-            match = decrypted_regex.match(mid)
+                match = regex.match(mid)
             if not match:
-                logger.warning("could not find message-id: %s", shlex.quote(mid))
+                logger.error(f"no match for {mid}")
                 ok = False
                 continue
-            if timestamp != match[1]:
-                logger.warning(f"timestamp changed {timestamp} {match[1]} with {match[2]}")
-                ok = False
-        else:
-            match = cleartex_regext.match(mid)
-        ok = print_id(match.groups()[-1], ids) and ok
+            id = match.groups()[-1]
+        ok = print_id(id, ids) and ok
     return ok
 
 
