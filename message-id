@@ -36,38 +36,47 @@ def error(message: str) -> None:
     sys.exit(8)
     
     
-def print_id(id: str, ids: set[str]) -> bool:
+def print_id(id: str, ids: set[str]) -> int:
     count = len(ids)
     ids.add(id)
-    print(id)
     if len(ids) != count + 1:
-        logger.warning("id %s is a duplicate", id)
-        return False
-    return True
+        logger.debug("id %s is a duplicate", id)
+        return 1
+    print(id)
+    return 0
 
 
-def process(mbox: str) -> bool:
+def process(mbox: str, any_message_id: bool) -> bool:
     decrypted_regex = re.compile(r'\s*<decrypted-(\d{13})-(.*)>')
     cleartex_regext = re.compile(r'\s*<(.*)>')
+    any_regex = re.compile(r'\s*(.*)')
     ok = True
     ids = set()
+    duplicates = 0
     
     for m in mailbox.mbox(mbox):
         mid = m['Message-ID']
         if not mid:
-            id = "".join((m['From'] + m['Date'] + m['Subject']).split())
+            id = m['From']
+            for i in ['Date', 'Subject']:
+                id = id + str(m.get(i, ''))
+            id = "".join((id).split())
             logger.debug("using fake message-id %s", id)
         else:
             match = decrypted_regex.match(mid)
             if match is None:
                 match = cleartex_regext.match(mid)
                 if not match:
-                    logger.warning("could not match message-id: %s", shlex.quote(mid))
-                    ok = False
-                    continue
+                    if any_message_id:
+                        match = any_regex.match(mid)
+                    else:
+                        logger.warning("could not match message-id: %s", shlex.quote(mid))
+                        ok = False
+                        continue
             id = match.groups()[-1]
-        ok = print_id(id, ids) and ok
-    return ok
+        duplicates += print_id(id, ids)
+    logger.warning("%d duplicates: %s", duplicates, shlex.quote(mbox))
+    return True
 
 
 def main():
@@ -83,7 +92,7 @@ def main():
         help="consider cache is too old")
     parser.add_argument("-q", "--usecache", "--quick", action="store_const", const=sys.maxsize, dest='cache_lifetime',
         help="consider cache is up todate")
-    parser.add_argument("--dump", action="store_true", help="dump the raw contact list")
+    parser.add_argument("--any", action="store_true", help="accept any non-empty message-id")
     parser.add_argument("--print", dest="print_list", action="store_true", help="print")
     parser.add_argument("--server", default="http://localhost:37358", help="url etesync server")
     parser.add_argument("--url", default=None, help="full url to download")
@@ -105,7 +114,7 @@ def main():
     
     ok = True
     for mbox in options.filenames:
-        ok = process(mbox) and ok
+        ok = process(mbox, options.any) and ok
     return ok
 
 
