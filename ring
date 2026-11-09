@@ -1,6 +1,6 @@
 #!/usr/bin/python3 -P
 # -*- coding: utf-8 -*-
-# ring Copyright (C) 2011-2014, 2017,2020  Stuart Pook (http://www.pook.it/)
+# ring Copyright (C) 2011-2014,2017,2020,2025  Stuart Pook (http://www.pook.it/)
 # This program is free software: you can redistribute it and/or modify it under
 # the terms of the GNU General Public License as published by the Free Software
 # Foundation, either version 3 of the License, or (at your option) any later version.
@@ -38,7 +38,18 @@ import time
 import stat
 import getpass
 import logging
-import hashlib
+import pathlib
+import tomllib
+import dataclasses
+
+@dataclasses.dataclass(frozen=True)
+class CalendarConfig:
+    url: str
+    username: str
+    password: str = dataclasses.field(repr=False)
+    ca: str
+    cert: str
+    key: str
 
 class MyError(Exception):
 	pass
@@ -267,14 +278,11 @@ def build_url(options, user):
 	logging.debug("url %s", url)
 	return url
 
-def get_credentials(options):
-	logging.debug("reading credentials from %s", options.credentials)
-	with open(options.credentials) as f:
-		fields = f.readline().strip().split(':')
-		user = fields[0]
-		passwd = fields[1]
-		logging.debug("credentials user=%s hash(passwd)=%s", user, hashlib.blake2b(passwd.encode(), digest_size=10).hexdigest())
-		return (user, passwd)
+def get_credentials(fn: pathlib.Path) -> CalendarConfig:
+	with fn.open('rb') as f:
+		cfg = CalendarConfig(**tomllib.load(f)['calendar'])
+		logging.debug("credentials from %s: %s", fn, cfg)
+		return cfg
 
 def get_cache_file(options):
 
@@ -302,9 +310,14 @@ def get_cache_file(options):
 		contacts = tempfile.TemporaryFile('w+')
 		tmp = None
 
-	credentials = get_credentials(options)
-	url = build_url(options, credentials[0])
-	r = requests.get(url, auth=credentials)
+	credentials = get_credentials(pathlib.Path(options.credentials))
+	home = pathlib.Path.home()
+	r = requests.get(
+		credentials.url,
+		auth=(credentials.username, credentials.password),
+		verify=home / credentials.ca,
+		cert=(home / credentials.cert, home / credentials.key),
+	)
 	if r.status_code != 200:
 		logging.fatal("download from %s failed with %d", url, r.status_code)
 		sys.exit(7)
@@ -451,6 +464,8 @@ def format_contacts(cache, options, args):
 			raise MyError('%s failed (%d)' % (printer, status))
 
 def main():
+	config_home = pathlib.Path(os.environ.get('XDG_CONFIG_HOME') or pathlib.Path.home() / '.config')
+
 	parser = optparse.OptionParser("%prog [options] pattern ...")
 	parser.add_option("-C", "--cache_lifetime", metavar="seconds", type='float', default=60 * 60 * 24, help="cache life time [%default]")
 	parser.add_option("-r", "--retrieve", "-n", "--oldcache", action="store_const", const=0, dest='cache_lifetime',
@@ -467,13 +482,10 @@ def main():
 	parser.add_option("--dump", action="store_true", help="dump the raw contact list")
 	parser.add_option("--print", dest="print_list", action="store_true", help="print")
 	parser.add_option("--text_size", type='float', metavar="points", help="text size")
-	parser.add_option("--server", default="http://localhost:37358", help="url etesync server [%default]")
-	parser.add_option("--url", default=None, help="full url to download [%default]")
-	parser.add_option("--addressbook", default=os.environ['ETESYNC'], help="address name [%default]")
 	parser.add_option("--fax_tag", default="f", help="tag for fax numbers [%default]")
 	parser.add_option("--home_prefix", default="+33", help="home prefix [%default]")
-	parser.add_option("--credentials", metavar="FILE",
-			default=os.path.expanduser('~/.local/share/etesync-dav/htpaswd'), help="etesync credentials [%default]")
+	parser.add_option("--credentials", metavar="FILE", type=str,
+			default=config_home / 'ring' / 'user.toml', help="radicale credentials [%default]")
 	parser.add_option("--cache", default=os.path.expanduser('~/.ring-cache'), metavar="FILE", help="file to cache contacts [%default]")
 	parser.set_defaults(loglevel='warn')
 	parser.add_option("-v", "--verbose", "--debug", dest='loglevel', action="store_const", const='debug', help="debug loglevel")
