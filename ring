@@ -284,6 +284,11 @@ def get_credentials(fn: pathlib.Path) -> CalendarConfig:
 		logging.debug("credentials from %s: %s", fn, cfg)
 		return cfg
 
+
+def relative_path(fn: str, dirname: pathlib.Path) -> pathlib.Path:
+	return dirname / pathlib.Path(fn).expanduser()
+
+
 def get_cache_file(options):
 
 	if options.cache:
@@ -310,13 +315,14 @@ def get_cache_file(options):
 		contacts = tempfile.TemporaryFile('w+')
 		tmp = None
 
+	credentials_path = pathlib.Path(options.credentials)
 	credentials = get_credentials(pathlib.Path(options.credentials))
-	home = pathlib.Path.home()
+	relative_dir = credentials_path.parent
 	r = requests.get(
-		credentials.url,
+		url=credentials.url,
 		auth=(credentials.username, credentials.password),
-		verify=home / credentials.ca,
-		cert=(home / credentials.cert, home / credentials.key),
+		verify=relative_path(credentials.ca, relative_dir),
+		cert=(relative_path(credentials.cert, relative_dir), relative_path(credentials.key, relative_dir)),
 	)
 	if r.status_code != 200:
 		logging.fatal("download from %s failed with %d", url, r.status_code)
